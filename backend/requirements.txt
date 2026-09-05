@@ -1,0 +1,16 @@
+# Floors, not pins: this project runs on Python 3.14, and binary wheels for the
+# Rust-backed deps (pydantic-core) only exist from these versions onward.
+fastapi>=0.118
+uvicorn>=0.34
+pydantic>=2.12
+pydantic-settings>=2.7
+python-dotenv>=1.0
+httpx>=0.28
+pyjwt[crypto]>=2.10
+cryptography>=44
+
+# 07-reasoning-agent -> Claude API
+anthropic>=0.69
+
+# Test suite (tests/) — runnable as plain scripts or under pytest
+pytest>=8

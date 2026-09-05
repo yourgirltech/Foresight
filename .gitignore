@@ -1,0 +1,45 @@
+# --- Secrets / env ---
+.env
+.env.*
+!.env.example
+*.local
+
+# --- Node / frontend ---
+node_modules/
+dist/
+dist-ssr/
+.vite/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# --- Python / backend ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Supabase ---
+# Local Supabase stack writes runtime state here; never commit it.
+supabase/.branches/
+supabase/.temp/
+supabase/.env
+
+# --- Editor / OS ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- Build / logs ---
+*.log
+.claude/
