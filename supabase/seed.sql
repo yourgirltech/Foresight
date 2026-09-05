@@ -1,0 +1,6 @@
+-- Phase 1 ships no seed data.
+--
+-- The two-clinic isolation proof (tests/isolation_test.py) creates every user,
+-- organization, and invitation it needs at runtime through the real signup /
+-- onboarding / invite RPCs, then tears them down. Keeping the seed empty means
+-- `supabase db reset` always lands in a clean, production-shaped state.
