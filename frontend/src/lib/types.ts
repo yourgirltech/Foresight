@@ -149,6 +149,75 @@ export interface DecisionResult {
   decision: { action: string; reason_code: string; route_to: string | null };
 }
 
+// --- Eligibility verification (Phase 2) ----------------------------------
+
+export type EligibilityStatus =
+  | "pending"
+  | "verified_active"
+  | "verified_inactive"
+  | "insufficient_info"
+  | "check_failed";
+
+export interface EligibilityCheck {
+  id: string;
+  appointment_id: string | null;
+  previous_check_id: string | null;
+  patient_name: string;
+  patient_member_id: string;
+  payer_id: string | null;
+  payer_name: string | null;
+  is_emergency: boolean;
+  status: EligibilityStatus;
+  result_payload: Record<string, unknown>;
+  checked_at: string | null;
+  created_at: string;
+}
+
+export interface Appointment {
+  id: string;
+  patient_name: string;
+  patient_member_id: string;
+  patient_dob: string | null;
+  payer_id: string | null;
+  scheduled_at: string | null;
+  is_emergency: boolean;
+  created_at: string;
+}
+
+export interface AppointmentWithCheck extends Appointment {
+  latest_check: EligibilityCheck | null;
+}
+
+export interface EligibilityListResponse {
+  organization_id: string;
+  appointments: AppointmentWithCheck[];
+  unscheduled_checks: EligibilityCheck[];
+}
+
+export interface AppointmentDetail {
+  appointment: Appointment;
+  payer: {
+    id: string;
+    name: string;
+    eligibility_verification_supported: boolean;
+    eligibility_active_threshold: number;
+  } | null;
+  checks: EligibilityCheck[];
+  activity_log: ActivityEntry[];
+}
+
+export interface EligibilityCheckDetail {
+  check: EligibilityCheck;
+  chain: EligibilityCheck[];
+  activity_log: ActivityEntry[];
+}
+
+export interface EligibilityDecisionResult {
+  eligibility_check_id: string;
+  appointment_id?: string | null;
+  decision: { action: string; reason_code: string; route_to: string | null };
+}
+
 export type InvitationStatus = "pending" | "accepted" | "revoked";
 
 export interface Invitation {

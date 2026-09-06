@@ -122,6 +122,41 @@ async def main() -> int:
     chk("B's issues now exist and all carry organization_id == B",
         len(b_issues) == 2 and all(r["organization_id"] == org_b for r in b_issues))
 
+    # ---- Phase 2: an eligibility run over A's check never touches B ----
+    from app.agents.eligibility import bucket  # noqa: PLC0415
+
+    def _active_member(payer_id: str) -> str:
+        for n in range(10**8, 10**8 + 5000):
+            if bucket(f"B{n}", payer_id) < 80:
+                return f"B{n}"
+        return "B100000000"
+
+    elig_before_b = len(svc_get("eligibility_checks", {"organization_id": f"eq.{org_b}", "select": "id"}))
+    check_a = svc_write("POST", "eligibility_checks", {}, {
+        "organization_id": org_a, "appointment_id": None,
+        "patient_name": "Isolation Elig Probe", "patient_member_id": _active_member(payer_a["id"]),
+        "payer_id": payer_a["id"], "payer_name": payer_a["name"],
+        "is_emergency": True, "status": "pending",
+    })[0]
+    await orchestrator.handle_eligibility(check_a["id"], {"type": "emergency_patient_registered"})
+    await orchestrator.drain_detached()
+
+    a_elig = svc_get("eligibility_checks", {"id": f"eq.{check_a['id']}", "select": "status,organization_id"})[0]
+    chk("A's eligibility check resolved and carries organization_id == A",
+        a_elig["status"] in ("verified_active", "verified_inactive") and a_elig["organization_id"] == org_a,
+        str(a_elig))
+    a_elig_acts = svc_get("activity_log", {"eligibility_check_id": f"eq.{check_a['id']}",
+                                           "select": "organization_id,actor"})
+    chk("every activity row from the eligibility run carries organization_id == A",
+        len(a_elig_acts) > 0 and all(r["organization_id"] == org_a for r in a_elig_acts), str(a_elig_acts))
+    chk("the eligibility run added no eligibility_checks rows to tenant B",
+        len(svc_get("eligibility_checks", {"organization_id": f"eq.{org_b}", "select": "id"})) == elig_before_b)
+    chk("no eligibility escalation / activity leaked to tenant B",
+        svc_get("escalations", {"organization_id": f"eq.{org_b}", "eligibility_check_id": "not.is.null",
+                                "select": "id"}) == []
+        and svc_get("activity_log", {"organization_id": f"eq.{org_b}", "eligibility_check_id": "not.is.null",
+                                     "select": "id"}) == [])
+
     return chk.summary("agent pipeline never crosses a tenant boundary.")
 
 

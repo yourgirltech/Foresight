@@ -100,6 +100,7 @@ export function prettyActor(actor: string): string {
   if (actor.startsWith("human:")) return "Human";
   const map: Record<string, string> = {
     "00-commander": "Commander",
+    "01-eligibility": "Eligibility (01)",
     "06-analyzer": "Analyzer (06)",
     "07-reasoning": "Reasoning (07)",
     "08-recommendation": "Recommendation (08)",
