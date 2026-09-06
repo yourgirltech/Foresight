@@ -63,7 +63,7 @@ export function ClaimsPage() {
             {claims?.map((c) => (
               <tr key={c.id} className="hover:bg-slate-50">
                 <td className="px-4 py-3 font-medium text-brand-700">
-                  <Link to={`/claims/${c.id}`} className="hover:underline">
+                  <Link to={`/app/claims/${c.id}`} className="hover:underline">
                     {c.claim_id}
                   </Link>
                 </td>

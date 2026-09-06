@@ -67,7 +67,7 @@ export function ClaimDetailPage() {
   if (error && !data) {
     return (
       <div className="space-y-4">
-        <Link to="/claims" className="text-sm text-brand-600 hover:underline">
+        <Link to="/app/claims" className="text-sm text-brand-600 hover:underline">
           ← Claims
         </Link>
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
@@ -84,7 +84,7 @@ export function ClaimDetailPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <Link to="/claims" className="text-sm text-brand-600 hover:underline">
+        <Link to="/app/claims" className="text-sm text-brand-600 hover:underline">
           ← Claims
         </Link>
         <button

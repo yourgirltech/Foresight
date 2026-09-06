@@ -30,3 +30,37 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
   }
   return (await resp.json()) as T;
 }
+
+/**
+ * Call a PUBLIC backend endpoint — no auth token. Used by the marketing site
+ * (e.g. the Book a Demo form) which has no session.
+ */
+export async function publicPost<T>(path: string, body: unknown): Promise<T> {
+  const resp = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const text = await resp.text();
+  let parsed: unknown = null;
+  try {
+    parsed = text ? JSON.parse(text) : null;
+  } catch {
+    parsed = text;
+  }
+  if (!resp.ok) {
+    const detail =
+      parsed && typeof parsed === "object" && "detail" in parsed
+        ? (parsed as { detail: unknown }).detail
+        : parsed;
+    let msg = `Request failed (${resp.status})`;
+    if (typeof detail === "string") {
+      msg = detail;
+    } else if (Array.isArray(detail) && detail[0] && typeof detail[0] === "object") {
+      // FastAPI / pydantic validation error shape
+      msg = String((detail[0] as { msg?: string }).msg ?? msg);
+    }
+    throw new Error(msg);
+  }
+  return parsed as T;
+}

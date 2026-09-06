@@ -46,7 +46,7 @@ export function AcceptInvitePage() {
   if (status === "signedOut") {
     return <Navigate to={`/signup${token ? `?token=${token}` : ""}`} replace />;
   }
-  if (status === "ready") return <Navigate to="/" replace />;
+  if (status === "ready") return <Navigate to="/app" replace />;
   if (!token) return <Navigate to="/onboarding" replace />;
 
   async function handleAccept() {
@@ -60,7 +60,7 @@ export function AcceptInvitePage() {
     }
     await refreshProfile();
     setBusy(false);
-    navigate("/", { replace: true });
+    navigate("/app", { replace: true });
   }
 
   const emailMismatch =
@@ -71,16 +71,16 @@ export function AcceptInvitePage() {
       title="Join a clinic"
       subtitle={preview ? undefined : "Checking your invitation…"}
       footer={
-        <button onClick={() => void signOut()} className="text-slate-400 hover:text-slate-600">
+        <button onClick={() => void signOut()} className="text-text-muted hover:text-text-secondary">
           Sign out
         </button>
       }
     >
       {loadingPreview ? (
-        <p className="text-sm text-slate-500">Loading…</p>
+        <p className="text-sm text-text-secondary">Loading…</p>
       ) : preview && preview.status === "pending" ? (
         <div className="space-y-4">
-          <p className="text-sm text-slate-700">
+          <p className="text-sm text-text-secondary">
             You've been invited to join{" "}
             <span className="font-semibold">{preview.organization_name}</span> as{" "}
             <span className="font-semibold">{preview.role}</span>.

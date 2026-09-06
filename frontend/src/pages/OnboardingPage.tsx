@@ -15,7 +15,7 @@ export function OnboardingPage() {
 
   if (status === "loading") return <FullPageSpinner />;
   if (status === "signedOut") return <Navigate to="/login" replace />;
-  if (status === "ready") return <Navigate to="/" replace />;
+  if (status === "ready") return <Navigate to="/app" replace />;
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -30,7 +30,7 @@ export function OnboardingPage() {
     }
     await refreshProfile();
     setBusy(false);
-    navigate("/", { replace: true });
+    navigate("/app", { replace: true });
   }
 
   return (
@@ -38,13 +38,13 @@ export function OnboardingPage() {
       title="Create your clinic"
       subtitle="You'll become its administrator and can invite teammates next."
       footer={
-        <button onClick={() => void signOut()} className="text-slate-400 hover:text-slate-600">
+        <button onClick={() => void signOut()} className="text-text-muted hover:text-text-secondary">
           Sign out
         </button>
       }
     >
       <form onSubmit={handleSubmit} className="space-y-4">
-        <label className="block text-sm font-medium text-slate-700">
+        <label className="block text-sm font-medium text-text-secondary">
           Clinic name
           <input
             type="text"
