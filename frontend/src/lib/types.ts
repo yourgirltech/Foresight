@@ -218,6 +218,30 @@ export interface EligibilityDecisionResult {
   decision: { action: string; reason_code: string; route_to: string | null };
 }
 
+// --- Dashboard (Overview) ------------------------------------------------
+
+export interface DashboardData {
+  claims: {
+    total: number;
+    submitted: number;
+    risk: { low: number; medium: number; high: number; scored: number };
+    escalated: number;
+    awaiting_approval: number;
+    at_risk: number;
+    missing_documentation: number;
+    missing_authorization: number;
+    clean_pct: number;
+  };
+  eligibility: {
+    total: number;
+    needs_followup: number;
+    verified_active: number;
+    verified_inactive: number;
+    check_failed: number;
+    emergency: number;
+  };
+}
+
 export type InvitationStatus = "pending" | "accepted" | "revoked";
 
 export interface Invitation {

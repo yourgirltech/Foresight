@@ -1,0 +1,74 @@
+/**
+ * Theme tokens.
+ *
+ * Every color is a set of space-separated RGB channels ("37 99 235"), so
+ * Tailwind can wrap it as  rgb(var(--color-x) / <alpha-value>)  and opacity
+ * modifiers (bg-surface/60) keep working. See tailwind.config.js — theme.colors
+ * is EXTENDED, never replaced, so Tailwind's default palette stays intact.
+ *
+ * Adding a third theme later = add ONE more  [data-theme="..."]  block below and
+ * one entry in theme/themes.ts. No component code changes.
+ */
+
+:root,
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-background: 246 247 249; /* app canvas */
+  --color-surface: 255 255 255; /* cards, sidebar, top bar */
+  --color-surface-muted: 244 246 249; /* inset areas, hover */
+
+  --color-text-primary: 17 24 39; /* headings, values */
+  --color-text-secondary: 100 116 139; /* labels, subtitles */
+  --color-text-muted: 148 163 184; /* faint meta */
+
+  --color-border: 226 232 240;
+  --color-border-strong: 203 213 225;
+
+  --color-accent: 37 99 235; /* blue-600 */
+  --color-accent-strong: 29 78 216; /* blue-700 */
+  --color-accent-soft: 239 246 255; /* active nav pill, badges */
+
+  --color-success: 22 163 74;
+  --color-success-soft: 220 252 231;
+
+  --color-warning: 217 119 6;
+  --color-warning-soft: 254 243 199;
+
+  --color-danger: 220 38 38;
+  --color-danger-soft: 254 226 226;
+
+  --color-pro: 147 51 234; /* purple — flagged / review / special states */
+  --color-pro-soft: 243 232 255;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-background: 13 17 23;
+  --color-surface: 22 27 34;
+  --color-surface-muted: 30 36 46;
+
+  --color-text-primary: 237 240 245;
+  --color-text-secondary: 148 163 184;
+  --color-text-muted: 107 114 128;
+
+  --color-border: 39 45 58;
+  --color-border-strong: 55 63 79;
+
+  --color-accent: 59 130 246; /* blue-500 — brighter on dark */
+  --color-accent-strong: 96 165 250;
+  --color-accent-soft: 27 42 68;
+
+  --color-success: 34 197 94;
+  --color-success-soft: 20 51 36;
+
+  --color-warning: 245 158 11;
+  --color-warning-soft: 61 47 18;
+
+  --color-danger: 248 113 113;
+  --color-danger-soft: 61 30 32;
+
+  --color-pro: 168 85 247;
+  --color-pro-soft: 47 33 66;
+}
