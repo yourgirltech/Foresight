@@ -17,6 +17,8 @@ import { DashboardPage } from "./pages/DashboardPage";
 import { EligibilityCheckDetailPage } from "./pages/EligibilityCheckDetailPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { PriorAuthDetailPage } from "./pages/PriorAuthDetailPage";
+import { PriorAuthPage } from "./pages/PriorAuthPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignupPage } from "./pages/SignupPage";
 import { StubPage } from "./pages/StubPage";
@@ -51,6 +53,8 @@ export default function App() {
         <Route path="appointments" element={<AppointmentsPage />} />
         <Route path="appointments/:id" element={<AppointmentDetailPage />} />
         <Route path="eligibility/:id" element={<EligibilityCheckDetailPage />} />
+        <Route path="prior-auth" element={<PriorAuthPage />} />
+        <Route path="prior-auth/:id" element={<PriorAuthDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="team" element={<TeamPage />} />
         <Route
@@ -104,6 +108,7 @@ export default function App() {
       <Route path="/dashboard" element={<Navigate to="/app" replace />} />
       <Route path="/claims" element={<Navigate to="/app/claims" replace />} />
       <Route path="/appointments" element={<Navigate to="/app/appointments" replace />} />
+      <Route path="/prior-auth" element={<Navigate to="/app/prior-auth" replace />} />
       <Route path="/settings" element={<Navigate to="/app/settings" replace />} />
       <Route path="/team" element={<Navigate to="/app/team" replace />} />
 

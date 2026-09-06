@@ -29,6 +29,11 @@ async def dashboard(ctx: AuthContext = Depends(require_organization)) -> dict:
         "/eligibility_checks",
         {"select": "status,is_emergency"},
     )
+    pas = await rest_get(
+        ctx.access_token,
+        "/prior_authorizations",
+        {"select": "id,status,previous_auth_id,is_emergency"},
+    )
 
     by_risk = Counter(c.get("risk_level") for c in claims if c.get("risk_level"))
     by_status = Counter(c.get("status") for c in claims)
@@ -52,6 +57,16 @@ async def dashboard(ctx: AuthContext = Depends(require_organization)) -> dict:
     elig_status = Counter(c.get("status") for c in checks)
     needs_followup = elig_status.get("pending", 0) + elig_status.get("insufficient_info", 0)
 
+    # prior auth — count only the newest row of each resubmit chain
+    pa_superseded = {p["previous_auth_id"] for p in pas if p.get("previous_auth_id")}
+    pa_current = [p for p in pas if p["id"] not in pa_superseded]
+    pa_status = Counter(p.get("status") for p in pa_current)
+    pa_needs_action = (
+        pa_status.get("required_draft", 0)
+        + pa_status.get("auth_denied", 0)
+        + pa_status.get("info_needed", 0)
+    )
+
     scored = low + medium + high
     clean_pct = round(100 * low / scored) if scored else 0
 
@@ -74,5 +89,15 @@ async def dashboard(ctx: AuthContext = Depends(require_organization)) -> dict:
             "verified_inactive": elig_status.get("verified_inactive", 0),
             "check_failed": elig_status.get("check_failed", 0),
             "emergency": sum(1 for c in checks if c.get("is_emergency")),
+        },
+        "prior_auth": {
+            "total": len(pa_current),
+            "needs_action": pa_needs_action,
+            "required_draft": pa_status.get("required_draft", 0),
+            "authorized": pa_status.get("auth_approved", 0),
+            "denied": pa_status.get("auth_denied", 0),
+            "info_needed": pa_status.get("info_needed", 0),
+            "not_required": pa_status.get("not_required", 0),
+            "emergency_exempt": pa_status.get("emergency_exempt", 0),
         },
     }

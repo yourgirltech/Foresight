@@ -203,6 +203,7 @@ export interface AppointmentDetail {
     eligibility_active_threshold: number;
   } | null;
   checks: EligibilityCheck[];
+  prior_authorizations: PriorAuthorization[];
   activity_log: ActivityEntry[];
 }
 
@@ -215,6 +216,63 @@ export interface EligibilityCheckDetail {
 export interface EligibilityDecisionResult {
   eligibility_check_id: string;
   appointment_id?: string | null;
+  decision: { action: string; reason_code: string; route_to: string | null };
+}
+
+// --- Prior authorization (Phase 3) --------------------------------------
+
+export type PriorAuthStatus =
+  | "pending"
+  | "not_required"
+  | "emergency_exempt"
+  | "insufficient_info"
+  | "required_draft"
+  | "submission_declined"
+  | "submitting"
+  | "submitted"
+  | "auth_approved"
+  | "info_needed"
+  | "auth_denied";
+
+export interface PriorAuthorization {
+  id: string;
+  appointment_id: string | null;
+  previous_auth_id: string | null;
+  patient_name: string;
+  patient_member_id: string;
+  payer_id: string | null;
+  payer_name: string | null;
+  procedure_code: string;
+  procedure_description: string;
+  place_of_service: string;
+  is_emergency: boolean;
+  status: PriorAuthStatus;
+  determination_payload: Record<string, unknown>;
+  request_payload: Record<string, unknown>;
+  response_payload: Record<string, unknown>;
+  authorization_number: string | null;
+  determined_at: string | null;
+  submitted_at: string | null;
+  resolved_at: string | null;
+  decided_by: string | null;
+  created_at: string;
+}
+
+export interface PriorAuthListResponse {
+  organization_id: string;
+  prior_authorizations: PriorAuthorization[];
+  needs_action: PriorAuthorization[];
+}
+
+export interface PriorAuthDetail {
+  prior_authorization: PriorAuthorization;
+  chain: PriorAuthorization[];
+  activity_log: ActivityEntry[];
+  appointment: Appointment | null;
+}
+
+export interface PriorAuthDecisionResult {
+  prior_authorization_id?: string;
   decision: { action: string; reason_code: string; route_to: string | null };
 }
 
@@ -239,6 +297,16 @@ export interface DashboardData {
     verified_inactive: number;
     check_failed: number;
     emergency: number;
+  };
+  prior_auth: {
+    total: number;
+    needs_action: number;
+    required_draft: number;
+    authorized: number;
+    denied: number;
+    info_needed: number;
+    not_required: number;
+    emergency_exempt: number;
   };
 }
 

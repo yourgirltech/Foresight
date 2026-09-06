@@ -19,6 +19,15 @@ family and rule block (E1–E7) — `commander._decide_eligibility`, dispatched 
 `commander_test.py` still passes unchanged. Full detail:
 [`01-eligibility-agent.md`](01-eligibility-agent.md)._
 
+_**Phase 3 addendum (§13): IMPLEMENTED** (2026-09-07). The prior-authorization
+trigger family and rule block (A1–A11) — `commander._decide_prior_auth`,
+dispatched from `decide()` after the eligibility check and before R1. Care-safety
+invariant (§13.3) hard-enforced in `orchestrator.handle_prior_auth` (three
+`raise`s: non-None `next_status`, emergency→12, emergency→`await_human`) and
+fuzzed over 23,328 states in `tests/prior_auth_commander_test.py`. §13 does not
+modify R1–R20 or E1–E7 — `commander_test.py` / `eligibility_commander_test.py`
+still pass unchanged. Full detail: [`02-prior-auth-agent.md`](02-prior-auth-agent.md)._
+
 ---
 
 ## 1. What the Commander is
@@ -659,3 +668,183 @@ re-verify task); an emergency `check_failed` is recorded, never escalated (E4).
 Emergency registration creates only an `eligibility_checks` row. One shared
 `decide()` entry point. E5/E6/E4 additionally require a check row present in
 state; a completion trigger with no check row falls to E7.
+
+---
+
+## 13. Phase 3 addendum — prior authorization (02)
+
+_Status: **SPEC — awaiting review.** Companion doc:
+[`02-prior-auth-agent.md`](02-prior-auth-agent.md), which carries the data model,
+the determination / draft / response simulation, the orchestrator changes, the
+UI, and the full test plan. This section is **only** the Commander-facing part:
+the new trigger family and the rule block. **It does not touch R1–R20 or
+E1–E7.**_
+
+### 13.1 What changes, and what does not
+
+| | |
+|---|---|
+| `CommanderDecision` dataclass | **unchanged** — `action`, `reason_code`, `route_to`, `next_status` |
+| `route_to` value set | gains `"02-prior-auth"` |
+| `reason_code` closed set | gains the ten values in §13.6 |
+| `next_status` for any prior-auth rule | **always `None`** — same invariant as eligibility (§13.3) |
+| R1–R20, E1–E7 | untouched, not reordered, not re-conditioned |
+| `EXECUTABLE_ACTIONS` / `MANUAL_ACTIONS` / `ELIGIBILITY_TRIGGERS` | untouched |
+
+### 13.2 Dispatch
+
+`decide()` gains a second early branch, after the eligibility check, before R1:
+
+```python
+PRIOR_AUTH_TRIGGERS = {
+    "prior_auth_requested", "prior_auth_emergency", "prior_auth_determined",
+    "prior_auth_submission_approved", "prior_auth_submission_declined",
+    "prior_auth_response_received",
+}
+
+def decide(state, trigger):
+    ttype = (trigger or {}).get("type")
+    if ttype in ELIGIBILITY_TRIGGERS:
+        return _decide_eligibility(state, trigger)      # §12.6, E1-E7
+    if ttype in PRIOR_AUTH_TRIGGERS:
+        return _decide_prior_auth(state, trigger)       # §13.6, A1-A11
+    # ... existing R1-R20, entirely unchanged ...
+```
+
+The three rule tables are **disjoint**. A trigger belongs to exactly one family;
+`state` is claim-shaped, eligibility-shaped, or prior-auth-shaped
+(`02-prior-auth-agent.md` §6.1) — the orchestrator assembles whichever the
+trigger calls for. Family order among the two early branches is irrelevant
+(disjoint sets); it is fixed as eligibility-then-prior-auth for readability.
+
+### 13.3 The care-safety invariant
+
+Prior authorization can gate an **elective** service (correctly — that is what
+prior auth is *for*). It must **never** gate, delay, or precondition **emergency
+/ urgent** care (EMTALA; and emergency services are contractually exempt from
+prior auth). The Commander enforces the emergency half structurally:
+
+> **For every prior-auth rule A1–A11: `decision.next_status is None`.** The
+> Commander never writes a status off a patient-access trigger — identical to the
+> eligibility invariant. `prior_authorizations.status` is written only by agent
+> 02 and the orchestrator's response handler; nothing on `appointments` is ever
+> touched.
+>
+> **For every prior-auth trigger where the resolved `context.is_emergency` is
+> true:**
+> - **`decision.action != "await_human"`** — an emergency never parks for a human
+>   approval;
+> - **`decision.route_to != "12-escalation"`** — an emergency is never escalated;
+> - the decision is `no_action`, or a `route` to `02-prior-auth` for the
+>   *determination only* (run detached — `02-prior-auth-agent.md` §9.3).
+>
+> The determination an emergency can produce is `emergency_exempt` or
+> `insufficient_info` — never `required_draft`, so there is never a request to
+> draft, approve, or submit (`02-prior-auth-agent.md` §7.3, P5).
+
+`orchestrator.handle_prior_auth` additionally hard-`raise`s on any violation
+(`next_status` non-None; emergency routed to 12; emergency at `await_human`), and
+`prior_auth_commander_test` fuzzes all clauses over the full
+trigger × status × response × `is_emergency` × `place_of_service` × appointment
+space (`02-prior-auth-agent.md` §12).
+
+### 13.4 `context.is_emergency` — resolved fail-safe
+
+The orchestrator resolves it (not the Commander). Ambiguity resolves to **true**
+(the non-blocking, no-auth path). See `02-prior-auth-agent.md` §6.2 for the
+table; the short version: emergency trigger, or an emergency-flagged row, or
+`place_of_service == 'emergency'`, or *no appointment*, or the field is missing →
+**true**. Only an unambiguous, appointment-backed, non-emergency,
+non-`emergency`-POS row is **false**.
+
+### 13.5 Trigger taxonomy — additions to §5
+
+| trigger `type` | emitted when | source |
+|----------------|--------------|--------|
+| `prior_auth_requested` | a `prior_authorizations` row created for a non-emergency appointment | seed, `POST /api/prior-authorizations` |
+| `prior_auth_emergency` | a `prior_authorizations` row created with `is_emergency = true` / `place_of_service = 'emergency'` | seed, `POST /api/prior-authorizations`, ER intake |
+| `prior_auth_determined` | `02.determine` wrote a terminal determination status | orchestrator, after `02.determine` |
+| `prior_auth_submission_approved` | a human approved submitting a drafted request | `POST /api/prior-authorizations/{id}/approve-submission` |
+| `prior_auth_submission_declined` | a human declined submitting a drafted request | `POST /api/prior-authorizations/{id}/decline-submission` |
+| `prior_auth_response_received` | `02.submit` produced a deterministic payer response | orchestrator, after `02.submit` |
+
+### 13.6 The rule block (A1–A11)
+
+Evaluated top to bottom, first match wins — same discipline as §6 / §12.6.
+`next_status` is `None` in every row (§13.3). `context.is_emergency` per §13.4.
+`pa` = `state["prior_authorization"]`; `pa.response_status` =
+`pa["response_payload"].get("response_status")`.
+
+| # | Condition | action | route_to | reason_code | next_status |
+|---|-----------|--------|----------|-------------|-------------|
+| **A1** | `trigger.type == "prior_auth_emergency"` | `route` | `02-prior-auth` | `prior_auth_emergency_determine` | `None` |
+| **A2** | `trigger.type == "prior_auth_requested"` **and** `context.is_emergency` | `route` | `02-prior-auth` | `prior_auth_emergency_determine` | `None` |
+| **A3** | `trigger.type == "prior_auth_requested"` | `route` | `02-prior-auth` | `prior_auth_determine` | `None` |
+| **A4** | `trigger.type == "prior_auth_determined"` **and** `context.is_emergency` | `no_action` | — | `prior_auth_emergency_exempt_recorded` | `None` |
+| **A5** | `trigger.type == "prior_auth_determined"` **and** `pa.status == "required_draft"` | `await_human` | — | `prior_auth_awaiting_submission_approval` | `None` |
+| **A6** | `trigger.type == "prior_auth_determined"` | `no_action` | — | `prior_auth_determination_recorded` | `None` |
+| **A7** | `trigger.type == "prior_auth_submission_approved"` **and** `pa.status == "required_draft"` **and not** `context.is_emergency` | `route` | `02-prior-auth` | `prior_auth_submit` | `None` |
+| **A8** | `trigger.type == "prior_auth_submission_declined"` | `no_action` | — | `prior_auth_submission_declined_recorded` | `None` |
+| **A9** | `trigger.type == "prior_auth_response_received"` **and** `pa.response_status == "approved"` | `no_action` | — | `prior_auth_approved_recorded` | `None` |
+| **A10** | `trigger.type == "prior_auth_response_received"` **and** `pa.response_status in {"info_needed","denied"}` **and not** `context.is_emergency` | `route` | `12-escalation` | `prior_auth_needs_human` | `None` |
+| **A11** | any prior-auth trigger, nothing above matched — `context.is_emergency` ? `no_action` : `route` `12-escalation` | — / `12-escalation` | `prior_auth_emergency_exempt_recorded` / `prior_auth_unrecognized_state` | `None` |
+
+Notes (full rationale in `02-prior-auth-agent.md` §6.3):
+
+- **A1/A2** — anything emergency-flagged routes to `02.determine` **detached**;
+  the determination runs (so the record exists) but nothing on a care path awaits
+  it. Never routes to 12, never awaits a human.
+- **A4 before A5/A6** — every emergency determination is recorded and stopped. By
+  P5 an emergency determination can only be `emergency_exempt` /
+  `insufficient_info`, so A5 could not match anyway; A4 makes it explicit.
+- **A5** — a scheduled determination of `required_draft`. Parks at `await_human`;
+  a human approves or declines submitting the drafted packet. Foresight never
+  auto-submits (mirror of R14).
+- **A7** — the **only** rule that routes to `02.submit`, behind three guards
+  (the approval trigger, `pa.status == "required_draft"`, `not is_emergency`).
+  The structural analogue of R9 behind R7/R8.
+- **A10** — the **only** prior-auth rule that routes to 12, and unreachable when
+  `context.is_emergency` (guarded, and by P5/P6 an emergency PA never has a
+  submission). A scheduled `denied` / `info_needed` is a real human task
+  (peer-to-peer, appeal, or attach clinicals and resubmit as a new chained row).
+  `next_status` still `None` — 12 only logs.
+- **A11** — malformed prior-auth state (mirror of R20 / E7), split so an
+  emergency-context fallthrough is *recorded*, never escalated.
+
+### 13.7 Worked traces
+
+| # | trigger | is_emergency | pa.status / response | matches | outcome |
+|---|---------|--------------|----------------------|---------|---------|
+| A-1 | `prior_auth_requested` | false | — | A3 | route → 02.determine (awaited, ahead of the visit) |
+| A-2 | `prior_auth_determined` | false | `not_required` | A6 | record, stop |
+| A-3 | `prior_auth_determined` | false | `required_draft` | A5 | `await_human` — draft on the queue |
+| A-4 | `prior_auth_submission_approved` | false | `required_draft` | A7 | route → 02.submit |
+| A-5 | `prior_auth_response_received` | false | `approved` | A9 | record `auth_approved`, stop |
+| A-6 | `prior_auth_response_received` | false | `denied` | A10 | route → 12 (peer-to-peer / appeal) |
+| A-7 | `prior_auth_emergency` | true | — | A1 | route → 02.determine **detached**; care unaffected |
+| A-8 | `prior_auth_determined` | true | `emergency_exempt` | A4 | `no_action`; recorded; **not** escalated, **no** draft |
+| A-9 | `prior_auth_requested`, row `is_emergency = true` | true | — | A2 | route → 02.determine detached (contradiction → safe path) |
+| A-10 | `prior_auth_response_received`, no PA row | true (fail-safe) | — | A11 | `no_action`, `prior_auth_emergency_exempt_recorded` |
+| A-11 | `prior_auth_response_received`, no PA row | false | — | A11 | route → 12, `prior_auth_unrecognized_state` |
+
+### 13.8 Test plan (Commander-facing slice — full plan in `02-prior-auth-agent.md` §12)
+
+`tests/prior_auth_commander_test.py`, stdlib only, no stack:
+
+- one case per A1–A11;
+- a re-run of representative R-rule and E-rule cases to prove R1–R20 / E1–E7 are
+  unchanged;
+- **the emergency-care-safety fuzz**: over
+  `trigger × pa.status × pa.response_status × is_emergency × place_of_service ×
+  appointment{present,None}`, assert determinism, `next_status is None` on every
+  result, and
+  `is_emergency ⟹ action != "await_human"` and `route_to != "12-escalation"` and
+  `route_to ∈ {None, "02-prior-auth"}`;
+- a named `test_emergency_prior_auth_is_never_gating`.
+
+### 13.9 Decisions — see `02-prior-auth-agent.md` §13
+
+To resolve at review: the human-approval mechanism (dedicated endpoints vs. the
+`recommendations` table); `02.submit` folded into 02 vs. a new executor number;
+whether an approved PA feeds the claims pipeline (recommend: not in Phase 3);
+`place_of_service` as text vs. enum; a new nav item vs. the Insurance stub.

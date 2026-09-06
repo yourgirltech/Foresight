@@ -6,6 +6,7 @@ import {
   CalendarDays,
   ChevronDown,
   ClipboardList,
+  FileCheck,
   FileText,
   LayoutDashboard,
   type LucideIcon,
@@ -17,6 +18,8 @@ import {
 } from "lucide-react";
 
 import { useAuth } from "../auth/useAuth";
+import { apiFetch } from "../lib/api";
+import type { DashboardData } from "../lib/types";
 
 interface NavItem {
   to: string;
@@ -31,6 +34,7 @@ const NAV: NavItem[] = [
   { to: "/app/patients", label: "Patients", icon: Users },
   { to: "/app/appointments", label: "Appointments", icon: CalendarDays },
   { to: "/app/insurance", label: "Insurance", icon: ShieldCheck },
+  { to: "/app/prior-auth", label: "Prior Auth", icon: FileCheck },
   { to: "/app/claims", label: "Claims", icon: FileText },
   { to: "/app/front-desk", label: "Front Desk", icon: UserRound },
   { to: "/app/tasks", label: "Tasks", icon: ClipboardList, badge: 3 },
@@ -53,7 +57,24 @@ function prettyRole(role?: string | null): string {
   return role.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function usePriorAuthBadge(): number | undefined {
+  const [count, setCount] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    apiFetch<DashboardData>("/api/dashboard")
+      .then((d) => {
+        if (active) setCount(d.prior_auth?.needs_action || undefined);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+  return count;
+}
+
 function Sidebar() {
+  const priorAuthBadge = usePriorAuthBadge();
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface md:flex">
       {/* the wordmark always links back OUT to the public marketing site */}
@@ -65,7 +86,9 @@ function Sidebar() {
       </Link>
 
       <nav className="flex-1 space-y-1 px-3 py-2">
-        {NAV.map(({ to, label, icon: Icon, end, badge }) => (
+        {NAV.map(({ to, label, icon: Icon, end, badge: staticBadge }) => {
+          const badge = to === "/app/prior-auth" ? priorAuthBadge : staticBadge;
+          return (
           <NavLink
             key={to}
             to={to}
@@ -97,7 +120,8 @@ function Sidebar() {
               </>
             )}
           </NavLink>
-        ))}
+          );
+        })}
       </nav>
     </aside>
   );

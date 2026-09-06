@@ -157,6 +157,42 @@ async def main() -> int:
         and svc_get("activity_log", {"organization_id": f"eq.{org_b}", "eligibility_check_id": "not.is.null",
                                      "select": "id"}) == [])
 
+    # ---- Phase 3: a prior-auth run over A's PA never touches B ----
+    pa_before_b = len(svc_get("prior_authorizations", {"organization_id": f"eq.{org_b}", "select": "id"}))
+    appt_a = svc_write("POST", "appointments", {}, {
+        "organization_id": org_a, "patient_name": "Isolation PA Probe",
+        "patient_member_id": "PROBE-PA-1", "payer_id": payer_a["id"],
+        "scheduled_at": "2026-11-01T00:00:00Z", "is_emergency": False,
+    })[0]
+    pa_a = svc_write("POST", "prior_authorizations", {}, {
+        "organization_id": org_a, "appointment_id": appt_a["id"],
+        "patient_name": "Isolation PA Probe", "patient_member_id": "PROBE-PA-1",
+        "payer_id": payer_a["id"], "payer_name": payer_a["name"],
+        "procedure_code": "72148", "place_of_service": "office",
+        "is_emergency": False, "status": "pending",
+    })[0]
+    await orchestrator.handle_prior_auth(pa_a["id"], {"type": "prior_auth_requested"})
+    await orchestrator.handle_prior_auth(pa_a["id"], {"type": "prior_auth_submission_approved"})
+    await orchestrator.drain_detached()
+
+    a_pa = svc_get("prior_authorizations",
+                   {"id": f"eq.{pa_a['id']}", "select": "status,organization_id"})[0]
+    chk("A's prior auth resolved and carries organization_id == A",
+        a_pa["status"] in ("auth_approved", "info_needed", "auth_denied")
+        and a_pa["organization_id"] == org_a, str(a_pa))
+    a_pa_acts = svc_get("activity_log", {"prior_authorization_id": f"eq.{pa_a['id']}",
+                                         "select": "organization_id,actor"})
+    chk("every activity row from the prior-auth run carries organization_id == A",
+        len(a_pa_acts) > 0 and all(r["organization_id"] == org_a for r in a_pa_acts), str(a_pa_acts))
+    chk("the prior-auth run added no prior_authorizations rows to tenant B",
+        len(svc_get("prior_authorizations", {"organization_id": f"eq.{org_b}", "select": "id"}))
+        == pa_before_b)
+    chk("no prior-auth escalation / activity leaked to tenant B",
+        svc_get("escalations", {"organization_id": f"eq.{org_b}", "prior_authorization_id": "not.is.null",
+                                "select": "id"}) == []
+        and svc_get("activity_log", {"organization_id": f"eq.{org_b}", "prior_authorization_id": "not.is.null",
+                                     "select": "id"}) == [])
+
     return chk.summary("agent pipeline never crosses a tenant boundary.")
 
 

@@ -24,6 +24,7 @@ from . import (
     eligibility,
     escalation,
     executors,
+    prior_auth,
     reasoning,
     recommendation,
     rules,
@@ -417,3 +418,270 @@ async def handle_eligibility(check_id: str, trigger: dict, *, _depth: int = 0) -
         return decision
 
     raise RuntimeError(f"handle_eligibility has no dispatch for route_to={decision.route_to!r}")
+
+
+# =========================================================================== #
+# Phase 3 — prior authorization (02-prior-auth-agent)
+#
+# THE CARE-SAFETY INVARIANT (docs/agents/00-commander.md §13.3):
+#   * every prior-auth Commander decision has next_status is None — enforced by a
+#     hard raise below, not just a comment;
+#   * NO emergency-context decision routes to 12-escalation, to await_human, or
+#     to a submission;
+#   * an emergency determination runs DETACHED — nothing on a care path awaits
+#     it, its exceptions are swallowed to a recorded status, it chains no
+#     care-related follow-on.
+#
+# Prior auth MAY gate an *elective* service (that is correct). Foresight never
+# *sets* a gating state — it only records status. The elective-gating nuance
+# never touches the emergency path (P5: an emergency determination can only be
+# emergency_exempt / insufficient_info — never required_draft).
+# =========================================================================== #
+_PA_RESPONSE_TO_STATUS = {
+    "approved": "auth_approved",
+    "info_needed": "info_needed",
+    "denied": "auth_denied",
+}
+
+
+def _encounter_of(pa: dict) -> dict:
+    return {
+        "procedure_code": pa.get("procedure_code", ""),
+        "procedure_description": pa.get("procedure_description", ""),
+        "place_of_service": pa.get("place_of_service", "office"),
+        "is_emergency": pa.get("is_emergency", False),
+    }
+
+
+def _patient_of(pa: dict) -> dict:
+    return {"name": pa.get("patient_name"), "member_id": pa.get("patient_member_id", "")}
+
+
+def _resolve_prior_auth_emergency(pa: dict, appt: dict | None, trigger: dict) -> bool:
+    """Mirror of commander._is_prior_auth_emergency_context, resolved from the
+    loaded rows. Ambiguity -> True (the non-blocking, no-auth path)."""
+    if (trigger or {}).get("type") == "prior_auth_emergency":
+        return True
+    if pa.get("is_emergency") is True:
+        return True
+    if pa.get("place_of_service") == "emergency":
+        return True
+    if isinstance(appt, dict) and appt.get("is_emergency") is True:
+        return True
+    if appt is None:
+        return True
+    return False
+
+
+async def _run_prior_auth_determine(org_id: str, pa_id: str, state: dict) -> dict:
+    """Run the pure determination (+ draft the packet when auth is required),
+    write it onto the PA row, log it. Returns the follow-on trigger. Any
+    exception in the pure core is caught and recorded as insufficient_info
+    (never re-raised) — a scheduled caller then reaches A6, a detached emergency
+    caller reaches A4."""
+    pa = state["prior_authorization"]
+    payer = state.get("payer") or {}
+    encounter = _encounter_of(pa)
+    patient = _patient_of(pa)
+
+    try:
+        det = prior_auth.determine(encounter, payer or None)
+        status, det_payload = det.status, det.determination_payload
+        request_payload = (
+            prior_auth.draft_request(encounter, payer or None, patient)
+            if status == "required_draft" else None
+        )
+    except Exception as exc:  # noqa: BLE001 — a bug in the pure core must not crash the run
+        status = "insufficient_info"
+        det_payload = {
+            "simulated": True,
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+            "recheck_recommended": True,
+        }
+        request_payload = None
+        await db.insert_activity(
+            org_id, None, actor="02-prior-auth", action="error",
+            prior_authorization_id=pa_id, appointment_id=pa.get("appointment_id"),
+            details={"error": str(exc), "error_type": type(exc).__name__},
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+    fields: dict = {
+        "status": status,
+        "determination_payload": det_payload,
+        "determined_at": now,
+    }
+    if request_payload is not None:
+        fields["request_payload"] = request_payload
+    if status in ("not_required", "emergency_exempt"):
+        fields["resolved_at"] = now
+    await db.update_prior_authorization(org_id, pa_id, fields)
+    await db.insert_activity(
+        org_id, None, actor="02-prior-auth", action="determined",
+        prior_authorization_id=pa_id, appointment_id=pa.get("appointment_id"),
+        details={"status": status, "matched_rule": det_payload.get("matched_rule")},
+    )
+    return {"type": "prior_auth_determined"}
+
+
+async def _run_prior_auth_submit(org_id: str, pa_id: str, state: dict) -> dict:
+    """Reachable ONLY via A7 (post human-approval). Submit the drafted request
+    (simulated send), then compute the deterministic payer response and write the
+    resolved status. Returns the follow-on trigger."""
+    pa = state["prior_authorization"]
+    payer = state.get("payer") or {}
+    encounter = _encounter_of(pa)
+    patient = _patient_of(pa)
+
+    await db.update_prior_authorization(org_id, pa_id, {"status": "submitting"})
+    await db.insert_activity(
+        org_id, None, actor="02-prior-auth:submit", action="submitting",
+        prior_authorization_id=pa_id, appointment_id=pa.get("appointment_id"),
+        details={"channel": (pa.get("request_payload") or {}).get("channel", "electronic")},
+    )
+
+    submitted_at = datetime.now(timezone.utc).isoformat()
+    await db.update_prior_authorization(
+        org_id, pa_id, {"status": "submitted", "submitted_at": submitted_at}
+    )
+    await db.insert_activity(
+        org_id, None, actor="02-prior-auth:submit", action="submitted",
+        prior_authorization_id=pa_id, appointment_id=pa.get("appointment_id"),
+        details={"simulated_send": True},
+    )
+
+    resp = prior_auth.simulate_response(
+        encounter, payer, patient, is_resubmit=bool(pa.get("previous_auth_id"))
+    )
+    resolved_status = _PA_RESPONSE_TO_STATUS[resp.response_status]
+    resolved_fields: dict = {
+        "status": resolved_status,
+        "response_payload": resp.response_payload,
+        "resolved_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if resp.authorization_number:
+        resolved_fields["authorization_number"] = resp.authorization_number
+    await db.update_prior_authorization(org_id, pa_id, resolved_fields)
+    await db.insert_activity(
+        org_id, None, actor="02-prior-auth:submit", action="response",
+        prior_authorization_id=pa_id, appointment_id=pa.get("appointment_id"),
+        details={"response_status": resp.response_status,
+                 "bucket": resp.response_payload.get("bucket")},
+    )
+    return {"type": "prior_auth_response_received"}
+
+
+async def _run_prior_auth_detached(org_id: str, pa_id: str, state: dict, *, _depth: int) -> None:
+    """The emergency fire-and-forget body. Runs 02.determine, then re-enters
+    handle_prior_auth with the follow-on (which lands on A4 -> no_action).
+    EVERYTHING is swallowed — this coroutine is not awaited by anything on a care
+    path."""
+    try:
+        follow_on = await _run_prior_auth_determine(org_id, pa_id, state)
+        await handle_prior_auth(pa_id, follow_on, _depth=_depth)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await db.insert_activity(
+                org_id, None, actor="02-prior-auth", action="error",
+                prior_authorization_id=pa_id,
+                details={"error": str(exc), "error_type": type(exc).__name__, "detached": True},
+            )
+        except Exception:  # noqa: BLE001 — last-ditch; never raise out of a detached task
+            pass
+
+
+async def handle_prior_auth(pa_id: str, trigger: dict, *, _depth: int = 0) -> CommanderDecision:
+    """Process one (prior_authorization, trigger). The prior-auth analogue of
+    handle(). organization_id is resolved ONCE, from the PA row."""
+    pa = await db.get_prior_authorization(pa_id)
+    if pa is None:
+        raise ValueError(f"prior_authorization {pa_id!r} not found")
+    org_id = pa["organization_id"]
+
+    appt = None
+    if pa.get("appointment_id"):
+        appt = await db.get_appointment(org_id, pa["appointment_id"])
+    payer = {}
+    if pa.get("payer_id"):
+        payer = await db.get_payer(org_id, pa["payer_id"]) or {}
+
+    emergency = _resolve_prior_auth_emergency(pa, appt, trigger)
+    state = {
+        "appointment": appt,
+        "prior_authorization": pa,
+        "payer": payer,
+        "context": {"is_emergency": emergency},
+    }
+    decision = commander.decide(state, trigger)
+
+    await db.insert_activity(
+        org_id, None, actor="00-commander", action=decision.reason_code,
+        appointment_id=pa.get("appointment_id"), prior_authorization_id=pa_id,
+        details={
+            "trigger": trigger.get("type"),
+            "action": decision.action,
+            "route_to": decision.route_to,
+            "is_emergency": emergency,
+        },
+    )
+
+    # --- the care-safety invariant: HARD enforced, not just documented --------
+    if decision.next_status is not None:
+        raise RuntimeError(
+            "prior-auth Commander decision carried a next_status "
+            f"({decision.next_status!r} for {decision.reason_code}) — a prior-auth "
+            "trigger must never write a status (00-commander.md §13.3)"
+        )
+    if emergency and decision.route_to == "12-escalation":
+        raise RuntimeError(
+            f"prior-auth Commander routed an emergency to 12-escalation "
+            f"({decision.reason_code}) — forbidden by 00-commander.md §13.3"
+        )
+    if emergency and decision.action == "await_human":
+        raise RuntimeError(
+            f"prior-auth Commander parked an emergency at await_human "
+            f"({decision.reason_code}) — forbidden by 00-commander.md §13.3"
+        )
+
+    if decision.action != "route":
+        return decision
+
+    if _depth + 1 >= MAX_INVOCATIONS:
+        await escalation.escalate(
+            org_id, None, reason_code="loop_cap_exceeded",
+            context={"trigger": trigger, "depth": _depth},
+            appointment_id=pa.get("appointment_id"), prior_authorization_id=pa_id,
+        )
+        return CommanderDecision("route", "loop_cap_exceeded", "12-escalation", None)
+
+    if decision.route_to == "02-prior-auth":
+        if decision.reason_code == "prior_auth_emergency_determine":
+            # FIRE-AND-FORGET. Not awaited. Nothing care-related waits on 02.
+            _spawn(_run_prior_auth_detached(org_id, pa_id, state, _depth=_depth + 1))
+            return decision
+        if decision.reason_code == "prior_auth_submit":  # A7 — post-approval only
+            follow_on = await _run_prior_auth_submit(org_id, pa_id, state)
+            await handle_prior_auth(pa_id, follow_on, _depth=_depth + 1)
+            return decision
+        # A3 — scheduled determination, awaited ahead of the visit
+        follow_on = await _run_prior_auth_determine(org_id, pa_id, state)
+        await handle_prior_auth(pa_id, follow_on, _depth=_depth + 1)
+        return decision
+
+    if decision.route_to == "12-escalation":  # A10 / A11 (non-emergency) only
+        await escalation.escalate(
+            org_id, None, reason_code=decision.reason_code,
+            context={
+                "trigger_reason": decision.reason_code,
+                "prior_auth_status": pa.get("status"),
+                "response_status": (pa.get("response_payload") or {}).get("response_status"),
+                "payer_name": pa.get("payer_name"),
+                "procedure_code": pa.get("procedure_code"),
+                "is_emergency": emergency,
+            },
+            appointment_id=pa.get("appointment_id"), prior_authorization_id=pa_id,
+        )
+        return decision
+
+    raise RuntimeError(f"handle_prior_auth has no dispatch for route_to={decision.route_to!r}")

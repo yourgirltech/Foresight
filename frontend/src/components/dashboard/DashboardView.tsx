@@ -222,13 +222,14 @@ export function DashboardView({
   const insights = useMemo<Insight[]>(() => {
     const c = data?.claims;
     const e = data?.eligibility;
+    const pa = data?.prior_auth;
     return [
       {
         tone: "danger",
         icon: ShieldAlert,
-        title: `${c?.missing_authorization ?? 0} claims may be denied`,
-        subtitle: "Missing prior authorization",
-        to: "/app/claims",
+        title: `${pa?.needs_action ?? c?.missing_authorization ?? 0} prior authorizations need attention`,
+        subtitle: "Drafts to approve, denials, and payer information requests",
+        to: "/app/prior-auth",
       },
       {
         tone: "accent",

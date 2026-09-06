@@ -261,6 +261,7 @@ async def insert_escalation(
     context: dict,
     appointment_id: str | None = None,
     eligibility_check_id: str | None = None,
+    prior_authorization_id: str | None = None,
 ) -> dict:
     rows = await _write(
         "POST",
@@ -274,6 +275,7 @@ async def insert_escalation(
             "context": context,
             "appointment_id": appointment_id,
             "eligibility_check_id": eligibility_check_id,
+            "prior_authorization_id": prior_authorization_id,
         },
     )
     return rows[0]
@@ -288,6 +290,7 @@ async def insert_activity(
     details: dict,
     appointment_id: str | None = None,
     eligibility_check_id: str | None = None,
+    prior_authorization_id: str | None = None,
 ) -> dict:
     rows = await _write(
         "POST",
@@ -301,6 +304,7 @@ async def insert_activity(
             "details": details,
             "appointment_id": appointment_id,
             "eligibility_check_id": eligibility_check_id,
+            "prior_authorization_id": prior_authorization_id,
         },
     )
     return rows[0]
@@ -326,6 +330,48 @@ async def update_eligibility_check(org_id: str, check_id: str, fields: dict) -> 
         "PATCH",
         "/eligibility_checks",
         {"organization_id": f"eq.{org_id}", "id": f"eq.{check_id}"},
+        fields,
+    )
+    return rows[0] if rows else None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 3 — prior authorization (all scoped by org_id)
+# --------------------------------------------------------------------------- #
+async def get_prior_authorization(pa_id: str) -> dict | None:
+    """Look up a prior_authorizations row by primary key. Used ONCE by the
+    orchestrator to resolve the organization_id that scopes everything else —
+    the prior-auth analogue of get_claim() / get_eligibility_check()."""
+    rows = await _get(
+        "/prior_authorizations", {"id": f"eq.{pa_id}", "select": "*", "limit": 1}
+    )
+    return rows[0] if rows else None
+
+
+async def list_prior_authorizations(org_id: str, appointment_id: str) -> list[dict]:
+    return await _get(
+        "/prior_authorizations",
+        {
+            "organization_id": f"eq.{org_id}",
+            "appointment_id": f"eq.{appointment_id}",
+            "select": "*",
+            "order": "created_at.desc",
+        },
+    )
+
+
+async def insert_prior_authorization(org_id: str, fields: dict) -> dict:
+    rows = await _write(
+        "POST", "/prior_authorizations", {}, {**fields, "organization_id": org_id}
+    )
+    return rows[0]
+
+
+async def update_prior_authorization(org_id: str, pa_id: str, fields: dict) -> dict | None:
+    rows = await _write(
+        "PATCH",
+        "/prior_authorizations",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{pa_id}"},
         fields,
     )
     return rows[0] if rows else None
