@@ -14,13 +14,42 @@ orchestrator forces an escalation rather than looping (00-commander.md §7.1).
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from ..config import get_settings
-from . import commander, db, escalation, executors, reasoning, recommendation, rules
+from . import (
+    commander,
+    db,
+    eligibility,
+    escalation,
+    executors,
+    reasoning,
+    recommendation,
+    rules,
+)
 from .commander import CommanderDecision
 
 MAX_INVOCATIONS = 12
+
+# Detached tasks (the emergency eligibility fire-and-forget path). Held in a set
+# so they are not garbage-collected mid-flight; discarded on completion.
+_detached_tasks: set[asyncio.Task] = set()
+
+
+def _spawn(coro) -> asyncio.Task:
+    task = asyncio.ensure_future(coro)
+    _detached_tasks.add(task)
+    task.add_done_callback(_detached_tasks.discard)
+    return task
+
+
+async def drain_detached() -> None:
+    """Wait for every outstanding detached eligibility task to finish. For the
+    seed script and tests — production callers never wait on these (that is the
+    whole point of the fire-and-forget path)."""
+    while _detached_tasks:
+        await asyncio.gather(*list(_detached_tasks), return_exceptions=True)
 
 
 async def _load_state(claim: dict) -> dict:
@@ -215,3 +244,176 @@ async def handle(claim_pk: str, trigger: dict, *, _depth: int = 0) -> CommanderD
     if follow_on is not None:
         await handle(claim_pk, follow_on, _depth=_depth + 1)
     return decision
+
+
+# =========================================================================== #
+# Phase 2 — eligibility verification (01-eligibility-agent)
+#
+# THE CARE-SAFETY INVARIANT (docs/agents/00-commander.md §12.3):
+#   * every eligibility Commander decision has next_status is None — enforced by
+#     a hard raise below, not just a comment;
+#   * an emergency check runs DETACHED — nothing on a care path awaits it, its
+#     exceptions are swallowed to a recorded check_failed, it chains no
+#     care-related follow-on.
+# =========================================================================== #
+async def _run_eligibility_agent(org_id: str, check_id: str, state: dict) -> dict:
+    """Run the pure simulation, write the resolved status onto the (pending)
+    check row, log it. Returns the follow-on trigger. Any exception in the pure
+    core is caught and recorded as check_failed (never re-raised) — a scheduled
+    caller then reaches E6, a detached emergency caller reaches E4."""
+    chk = state["eligibility_check"]
+    payer = state.get("payer") or {}
+    patient = {"name": chk.get("patient_name"), "member_id": chk.get("patient_member_id", "")}
+
+    try:
+        result = eligibility.simulate(patient, payer or None)
+        status, payload = result.status, result.result_payload
+    except Exception as exc:  # noqa: BLE001 — a bug in the pure core must not crash the run
+        status = "check_failed"
+        payload = {
+            "simulated": True,
+            "error": str(exc),
+            "error_type": type(exc).__name__,
+            "recheck_recommended": True,
+        }
+        await db.insert_activity(
+            org_id, None, actor="01-eligibility", action="error",
+            eligibility_check_id=check_id, appointment_id=chk.get("appointment_id"),
+            details={"error": str(exc), "error_type": type(exc).__name__},
+        )
+
+    await db.update_eligibility_check(
+        org_id, check_id,
+        {
+            "status": status,
+            "result_payload": payload,
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        },
+    )
+    await db.insert_activity(
+        org_id, None, actor="01-eligibility", action="verified",
+        eligibility_check_id=check_id, appointment_id=chk.get("appointment_id"),
+        details={"status": status, "member_bucket": payload.get("member_bucket")},
+    )
+    return {
+        "type": "eligibility_check_failed" if status == "check_failed"
+        else "eligibility_check_completed"
+    }
+
+
+async def _run_eligibility_detached(org_id: str, check_id: str, state: dict, *, _depth: int) -> None:
+    """The emergency fire-and-forget body. Runs 01, then re-enters
+    handle_eligibility with the follow-on (which lands on E4 -> no_action).
+    EVERYTHING is swallowed — this coroutine is not awaited by anything on a
+    care path, so an exception here has nowhere to propagate and must not become
+    an unhandled task error."""
+    try:
+        follow_on = await _run_eligibility_agent(org_id, check_id, state)
+        await handle_eligibility(check_id, follow_on, _depth=_depth)
+    except Exception as exc:  # noqa: BLE001
+        try:
+            await db.insert_activity(
+                org_id, None, actor="01-eligibility", action="error",
+                eligibility_check_id=check_id,
+                details={"error": str(exc), "error_type": type(exc).__name__, "detached": True},
+            )
+        except Exception:  # noqa: BLE001 — last-ditch; never raise out of a detached task
+            pass
+
+
+def _resolve_emergency(check: dict, appt: dict | None, trigger: dict) -> bool:
+    """Mirror of commander._is_emergency_context, resolved from the loaded rows.
+    Ambiguity -> True (the non-blocking path)."""
+    if (trigger or {}).get("type") == "emergency_patient_registered":
+        return True
+    if check.get("is_emergency") is True:
+        return True
+    if isinstance(appt, dict) and appt.get("is_emergency") is True:
+        return True
+    if appt is None:  # a check with no appointment is treated as the safe path
+        return True
+    return False
+
+
+async def handle_eligibility(check_id: str, trigger: dict, *, _depth: int = 0) -> CommanderDecision:
+    """Process one (eligibility_check, trigger). The eligibility analogue of
+    handle(). organization_id is resolved ONCE, from the check row."""
+    check = await db.get_eligibility_check(check_id)
+    if check is None:
+        raise ValueError(f"eligibility_check {check_id!r} not found")
+    org_id = check["organization_id"]
+
+    appt = None
+    if check.get("appointment_id"):
+        appt = await db.get_appointment(org_id, check["appointment_id"])
+    payer = {}
+    if check.get("payer_id"):
+        payer = await db.get_payer(org_id, check["payer_id"]) or {}
+
+    emergency = _resolve_emergency(check, appt, trigger)
+    state = {
+        "appointment": appt,
+        "eligibility_check": check,
+        "payer": payer,
+        "context": {"is_emergency": emergency},
+    }
+    decision = commander.decide(state, trigger)
+
+    await db.insert_activity(
+        org_id, None, actor="00-commander", action=decision.reason_code,
+        appointment_id=check.get("appointment_id"), eligibility_check_id=check_id,
+        details={
+            "trigger": trigger.get("type"),
+            "action": decision.action,
+            "route_to": decision.route_to,
+            "is_emergency": emergency,
+        },
+    )
+
+    # --- the care-safety invariant: HARD enforced, not just documented --------
+    if decision.next_status is not None:
+        raise RuntimeError(
+            "eligibility Commander decision carried a next_status "
+            f"({decision.next_status!r} for {decision.reason_code}) — an eligibility "
+            "trigger must never transition a care object (00-commander.md §12.3)"
+        )
+    if emergency and decision.route_to == "12-escalation":
+        raise RuntimeError(
+            f"eligibility Commander routed an emergency check to 12-escalation "
+            f"({decision.reason_code}) — forbidden by 00-commander.md §12.3"
+        )
+
+    if decision.action != "route":
+        return decision
+
+    if _depth + 1 >= MAX_INVOCATIONS:
+        await escalation.escalate(
+            org_id, None, reason_code="loop_cap_exceeded",
+            context={"trigger": trigger, "depth": _depth},
+            appointment_id=check.get("appointment_id"), eligibility_check_id=check_id,
+        )
+        return CommanderDecision("route", "loop_cap_exceeded", "12-escalation", None)
+
+    if decision.route_to == "01-eligibility":
+        if emergency:
+            # FIRE-AND-FORGET. Not awaited. Nothing care-related waits on 01.
+            _spawn(_run_eligibility_detached(org_id, check_id, state, _depth=_depth + 1))
+            return decision
+        follow_on = await _run_eligibility_agent(org_id, check_id, state)
+        await handle_eligibility(check_id, follow_on, _depth=_depth + 1)
+        return decision
+
+    if decision.route_to == "12-escalation":  # E6 — scheduled check_failed only
+        await escalation.escalate(
+            org_id, None, reason_code=decision.reason_code,
+            context={
+                "trigger_reason": decision.reason_code,
+                "eligibility_status": check.get("status"),
+                "payer_name": check.get("payer_name"),
+                "is_emergency": emergency,
+            },
+            appointment_id=check.get("appointment_id"), eligibility_check_id=check_id,
+        )
+        return decision
+
+    raise RuntimeError(f"handle_eligibility has no dispatch for route_to={decision.route_to!r}")

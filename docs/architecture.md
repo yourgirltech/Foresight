@@ -191,6 +191,7 @@ one job and return control:
 
 | # | Agent | LLM? | Job |
 |---|-------|------|-----|
+| 01 | eligibility | no | simulated eligibility verification — patient + payer → coverage status (Phase 2; `agents/01-eligibility-agent.md`) |
 | 06 | analyzer | no | deterministic rule engine — find issues, score risk (§6.1) |
 | 07 | reasoning | **yes** | plain-language explanation of the issue list, strictly grounded |
 | 08 | recommendation | no | issue list → action + confidence band + `low_confidence` |
@@ -263,8 +264,13 @@ Priority order: `missing_authorization` → `missing_documentation` →
 
 ## 7. Still not built
 
-- Eligibility, prior-auth, patient comms, voice — agent numbers 01–05, 11 are
-  reserved for these.
+- Prior-auth, patient comms, voice — agent numbers 02–05, 11 are reserved for
+  these. **01 (eligibility) shipped in Phase 2** —
+  [`agents/01-eligibility-agent.md`](agents/01-eligibility-agent.md): a
+  deterministic eligibility *simulation* (no real clearinghouse yet), a second
+  disjoint Commander rule block (E1–E7, `00-commander.md` §12), and the
+  structurally-enforced rule that verification never gates emergency care.
+- Real eligibility integration (01 simulates in Phase 2, exactly as 09/10 do).
 - Real external delivery — 09/10 do a **simulated** send in Phase 1.
 - Payer adjudication sync (`denied`/`paid`/`rejected` are set only by the seed).
 - A "mark manual action complete" flow out of `manual_action_required`.

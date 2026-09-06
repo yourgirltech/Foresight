@@ -117,6 +117,39 @@ async def list_activity(org_id: str, claim_pk: str) -> list[dict]:
 
 
 # --------------------------------------------------------------------------- #
+# Phase 2 — eligibility verification reads
+# --------------------------------------------------------------------------- #
+async def get_appointment(org_id: str, appt_id: str) -> dict | None:
+    rows = await _get(
+        "/appointments",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{appt_id}", "select": "*", "limit": 1},
+    )
+    return rows[0] if rows else None
+
+
+async def get_eligibility_check(check_id: str) -> dict | None:
+    """Look up an eligibility check by primary key. Used ONCE by the orchestrator
+    to resolve the organization_id that scopes everything else — the eligibility
+    analogue of get_claim()."""
+    rows = await _get(
+        "/eligibility_checks", {"id": f"eq.{check_id}", "select": "*", "limit": 1}
+    )
+    return rows[0] if rows else None
+
+
+async def list_eligibility_checks(org_id: str, appointment_id: str) -> list[dict]:
+    return await _get(
+        "/eligibility_checks",
+        {
+            "organization_id": f"eq.{org_id}",
+            "appointment_id": f"eq.{appointment_id}",
+            "select": "*",
+            "order": "created_at.desc",
+        },
+    )
+
+
+# --------------------------------------------------------------------------- #
 # writes — all scoped by org_id
 # --------------------------------------------------------------------------- #
 async def update_claim(org_id: str, claim_pk: str, fields: dict) -> dict | None:
@@ -226,6 +259,8 @@ async def insert_escalation(
     reason_code: str,
     originating_agent: str,
     context: dict,
+    appointment_id: str | None = None,
+    eligibility_check_id: str | None = None,
 ) -> dict:
     rows = await _write(
         "POST",
@@ -237,6 +272,8 @@ async def insert_escalation(
             "reason_code": reason_code,
             "originating_agent": originating_agent,
             "context": context,
+            "appointment_id": appointment_id,
+            "eligibility_check_id": eligibility_check_id,
         },
     )
     return rows[0]
@@ -249,6 +286,8 @@ async def insert_activity(
     actor: str,
     action: str,
     details: dict,
+    appointment_id: str | None = None,
+    eligibility_check_id: str | None = None,
 ) -> dict:
     rows = await _write(
         "POST",
@@ -260,6 +299,33 @@ async def insert_activity(
             "actor": actor,
             "action": action,
             "details": details,
+            "appointment_id": appointment_id,
+            "eligibility_check_id": eligibility_check_id,
         },
     )
     return rows[0]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 2 — eligibility verification writes (all scoped by org_id)
+# --------------------------------------------------------------------------- #
+async def insert_appointment(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/appointments", {}, {**fields, "organization_id": org_id})
+    return rows[0]
+
+
+async def insert_eligibility_check(org_id: str, fields: dict) -> dict:
+    rows = await _write(
+        "POST", "/eligibility_checks", {}, {**fields, "organization_id": org_id}
+    )
+    return rows[0]
+
+
+async def update_eligibility_check(org_id: str, check_id: str, fields: dict) -> dict | None:
+    rows = await _write(
+        "PATCH",
+        "/eligibility_checks",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{check_id}"},
+        fields,
+    )
+    return rows[0] if rows else None

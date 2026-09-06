@@ -11,6 +11,14 @@ agent (09/10), it sits behind R7 (must have an `approved` recommendation on an
 `awaiting_approval` claim) and R8 (must not be low-confidence), and the one
 action that resubmits a claim to a payer (`resubmit_corrected_coding`) has no
 agent-execution path at all — R10 hands it to a human via 12.
+
+Phase 2 adds a SECOND, disjoint rule table for eligibility verification
+(E1-E7, docs/agents/00-commander.md §12 and docs/agents/01-eligibility-agent.md).
+`decide()` dispatches to `_decide_eligibility` on the first line when the trigger
+is in ELIGIBILITY_TRIGGERS, before R1. The care-safety invariant it enforces:
+every E-rule returns `next_status is None` (the Commander never transitions a
+care object off an eligibility trigger), and no rule reachable with an emergency
+signal routes to `12-escalation`.
 """
 from __future__ import annotations
 
@@ -35,6 +43,17 @@ MANUAL_ACTIONS = {"resubmit_corrected_coding"}
 
 REANALYZE_TRIGGERS = {"claim.ingested", "claim.reanalyze"}
 
+# --- Phase 2: the eligibility trigger family (00-commander.md §12) -------------
+# A disjoint rule table (E1-E7). decide() dispatches here BEFORE R1; a claims
+# trigger never reaches an E-rule and an eligibility trigger never reaches R1.
+ELIGIBILITY_TRIGGERS = {
+    "appointment_scheduled",
+    "emergency_patient_registered",
+    "eligibility_check_completed",
+    "eligibility_check_failed",
+}
+ELIGIBILITY_COMPLETION_TRIGGERS = {"eligibility_check_completed", "eligibility_check_failed"}
+
 
 @dataclass(frozen=True)
 class CommanderDecision:
@@ -44,8 +63,95 @@ class CommanderDecision:
     next_status: str | None = None
 
 
+def _is_emergency_context(state: dict, trigger: dict) -> bool:
+    """Resolve whether this eligibility trigger concerns emergency care.
+    Ambiguity ALWAYS resolves to True — the non-blocking path (00-commander.md
+    §12.4). The only way to get False is an unambiguous, appointment-backed,
+    non-emergency booking."""
+    if (trigger or {}).get("type") == "emergency_patient_registered":
+        return True
+    chk = state.get("eligibility_check")
+    if isinstance(chk, dict) and chk.get("is_emergency") is True:
+        return True
+    appt = state.get("appointment")
+    if isinstance(appt, dict) and appt.get("is_emergency") is True:
+        return True
+    ctx = state.get("context") or {}
+    if ctx.get("is_emergency") is True:
+        return True
+    # fail-safe: no appointment at all, or the flag was never resolved
+    if appt is None and ctx.get("is_emergency") is None:
+        return True
+    return False
+
+
+def _decide_eligibility(state: dict, trigger: dict) -> CommanderDecision:
+    """The eligibility rule table E1-E7 (00-commander.md §12.6). Pure.
+
+    INVARIANT: every return here has next_status=None — the Commander never
+    transitions an appointment / encounter / care object off an eligibility
+    trigger. And no branch reachable with `emergency` True routes to
+    12-escalation.
+    """
+    ttype = (trigger or {}).get("type")
+    emergency = _is_emergency_context(state, trigger)
+    has_check = isinstance(state.get("eligibility_check"), dict)
+
+    # E1 — an emergency registration is fire-and-forget, before anything else
+    if ttype == "emergency_patient_registered":
+        return CommanderDecision(
+            "route", "eligibility_emergency_fire_and_forget", "01-eligibility", None
+        )
+
+    # E2 — a scheduled trigger on an emergency-flagged row: take the safe path
+    if ttype == "appointment_scheduled" and emergency:
+        return CommanderDecision(
+            "route", "eligibility_emergency_fire_and_forget", "01-eligibility", None
+        )
+
+    # E3 — a normal scheduled appointment: verify ahead of time
+    if ttype == "appointment_scheduled":
+        return CommanderDecision(
+            "route", "eligibility_scheduled_ahead_of_time", "01-eligibility", None
+        )
+
+    # E4 — ANY emergency completion/failure: record and stop. verified_active,
+    # verified_inactive, insufficient_info and check_failed are all handled
+    # identically. Never an escalation.
+    if ttype in ELIGIBILITY_COMPLETION_TRIGGERS and emergency and has_check:
+        return CommanderDecision("no_action", "eligibility_emergency_recorded", None, None)
+
+    # E5 — a scheduled check that completed (any non-failure terminal): record
+    if ttype == "eligibility_check_completed" and has_check:
+        return CommanderDecision("no_action", "eligibility_scheduled_recorded", None, None)
+
+    # E6 — a scheduled check that FAILED: operational re-verify task for a human.
+    # The ONLY eligibility rule that routes to 12, and unreachable when emergency
+    # (E4 caught it). next_status still None — 12 only logs.
+    if ttype == "eligibility_check_failed" and has_check:
+        return CommanderDecision(
+            "route", "eligibility_check_failed_scheduled", "12-escalation", None
+        )
+
+    # E7 — malformed eligibility state (e.g. a completion trigger with no check
+    # row). Mirror of R20, split: an emergency-context fallthrough is recorded,
+    # never escalated.
+    if emergency:
+        return CommanderDecision("no_action", "eligibility_emergency_recorded", None, None)
+    return CommanderDecision(
+        "route", "eligibility_unrecognized_state", "12-escalation", None
+    )
+
+
 def decide(state: dict, trigger: dict) -> CommanderDecision:
-    """First matching rule in 00-commander.md §6 wins. Pure."""
+    """First matching rule wins. Pure.
+
+    Dispatch: an eligibility trigger goes to the E1-E7 table (§12.6); everything
+    else goes to the claims table R1-R20 (§6). The two never interleave.
+    """
+    if (trigger or {}).get("type") in ELIGIBILITY_TRIGGERS:
+        return _decide_eligibility(state, trigger)
+
     claim = state.get("claim") or {}
     rec = state.get("recommendation")
     issues = state.get("issues") or []

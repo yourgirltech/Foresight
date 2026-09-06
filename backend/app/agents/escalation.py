@@ -21,6 +21,8 @@ async def escalate(
     *,
     reason_code: str,
     context: dict,
+    appointment_id: str | None = None,
+    eligibility_check_id: str | None = None,
 ) -> dict:
     esc = await db.insert_escalation(
         org_id,
@@ -28,6 +30,8 @@ async def escalate(
         reason_code=reason_code,
         originating_agent="12-escalation",
         context=context,
+        appointment_id=appointment_id,
+        eligibility_check_id=eligibility_check_id,
     )
     await db.insert_activity(
         org_id,
@@ -35,5 +39,7 @@ async def escalate(
         actor="12-escalation",
         action="escalated",
         details={"escalation_id": esc["id"], "reason_code": reason_code},
+        appointment_id=appointment_id,
+        eligibility_check_id=eligibility_check_id,
     )
     return esc

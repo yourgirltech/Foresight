@@ -11,6 +11,14 @@ One refinement during implementation: R19 now also requires
 `claim.status == executing` so a stray `execution.completed` from another state
 falls through to R20 (escalate) instead of being swallowed._
 
+_**Phase 2 addendum (§12): IMPLEMENTED** (2026-09-06). The eligibility trigger
+family and rule block (E1–E7) — `commander._decide_eligibility`, dispatched from
+`decide()` before R1. Care-safety invariant (§12.3) additionally hard-enforced in
+`orchestrator.handle_eligibility` and fuzzed in
+`tests/eligibility_commander_test.py`. §12 does not modify R1–R20 —
+`commander_test.py` still passes unchanged. Full detail:
+[`01-eligibility-agent.md`](01-eligibility-agent.md)._
+
 ---
 
 ## 1. What the Commander is
@@ -71,9 +79,10 @@ resubmission never fires from automation — regardless of bugs elsewhere.
 | 10 | reminder-agent | executor | no | carry out an approved *payer-reminder* action (simulated send + logged record) |
 | 12 | escalation-agent | safety net | no | log full context, flag for a human, stop — for **both** errors/unrecognised states **and** approved actions that a human must perform (§6.3.1) |
 
-Numbers 01–05 and 11 are intentionally unassigned — reserved for later phases
-(eligibility, prior-auth, patient comms, …). The Commander never routes to them;
-if a trigger implies one, it falls through to escalation (R20).
+Numbers 02–05 and 11 are intentionally unassigned — reserved for later phases
+(prior-auth, patient comms, …). The Commander never routes to them; if a trigger
+implies one, it falls through to escalation (R20). **01 (eligibility) is assigned
+in Phase 2 — see §12**; the claims pipeline still never routes to it.
 
 ### 2.1 Two kinds of "execution"
 
@@ -194,6 +203,12 @@ path. They are minted **after** the approve/decline endpoint has (a) verified th
 session and (b) written the `recommendations.approval_status` change under the
 caller's own RLS scope. By the time the Commander sees `human.approved`, the
 approval is already durably recorded — the Commander re-checks it anyway (R7).
+
+**Phase 2 adds a second trigger family** — `appointment_scheduled`,
+`emergency_patient_registered`, `eligibility_check_completed`,
+`eligibility_check_failed` — handled by a separate rule block (§12.6, E1–E7)
+reached by a dispatch at the top of `decide()`, *before* R1. A claims trigger
+never reaches an E-rule; an eligibility trigger never reaches R1–R20.
 
 ---
 
@@ -493,3 +508,154 @@ of the contract — `activity_log` rows and the Commander tests assert on them.
 
 - **`claim.reanalyze` scope (R15).** Currently allowed from any non-terminal
   status; re-runs the whole pipeline. Left permissive for now.
+
+---
+
+## 12. Phase 2 addendum — eligibility verification (01)
+
+_Status: **SPEC — awaiting review.** Companion doc:
+[`01-eligibility-agent.md`](01-eligibility-agent.md), which carries the data
+model, the simulation, the orchestrator changes, the UI, and the test plan. This
+section is **only** the Commander-facing part: the new trigger family and the
+rule block. **It does not touch R1–R20.**_
+
+### 12.1 What changes, and what does not
+
+| | |
+|---|---|
+| `CommanderDecision` dataclass | **unchanged** — `action`, `reason_code`, `route_to`, `next_status` |
+| `route_to` value set | gains `"01-eligibility"` |
+| `reason_code` closed set | gains the six values in §12.6 |
+| `next_status` for any eligibility rule | **always `None`** — the Commander never transitions a care object off an eligibility trigger (§12.3) |
+| R1–R20 | untouched, not reordered, not re-conditioned |
+| `EXECUTABLE_ACTIONS` / `MANUAL_ACTIONS` | untouched |
+
+### 12.2 Dispatch
+
+`decide()` gains a branch on the **first line**, before R1:
+
+```python
+ELIGIBILITY_TRIGGERS = {
+    "appointment_scheduled", "emergency_patient_registered",
+    "eligibility_check_completed", "eligibility_check_failed",
+}
+
+def decide(state, trigger):
+    if (trigger or {}).get("type") in ELIGIBILITY_TRIGGERS:
+        return _decide_eligibility(state, trigger)   # §12.6, E1-E7 — pure, like the rest
+    # ... existing R1-R20, entirely unchanged ...
+```
+
+The two rule tables are **disjoint**. A claims trigger never reaches an E-rule;
+an eligibility trigger never reaches R1. `state` is claim-shaped for the former
+and eligibility-shaped for the latter (`01-eligibility-agent.md` §6.1) — the
+orchestrator assembles whichever the trigger calls for.
+
+### 12.3 The care-safety invariant (the reason this phase is spec-first)
+
+Eligibility verification must **never gate or delay emergency care** (EMTALA).
+The Commander enforces it structurally:
+
+> **For every eligibility rule E1–E7: `decision.next_status is None`.**
+> The Commander never drives an appointment, encounter, or any care object off
+> the back of an eligibility trigger. The eligibility result lives only in
+> `eligibility_checks.status` (written by 01) and `activity_log`.
+>
+> **For every eligibility trigger where the resolved `context.is_emergency` is
+> true: `decision.route_to != "12-escalation"`.** The decision is `no_action`,
+> or a `route` to `01-eligibility` itself. Emergency `insufficient_info` and
+> emergency `check_failed` are *recorded outcomes* (E4), never escalations.
+
+The orchestrator additionally `assert`s `decision.next_status is None` for every
+eligibility decision, and `commander_test` / `eligibility_commander_test` fuzz
+both clauses over the full trigger × status × `is_emergency` space
+(`01-eligibility-agent.md` §12).
+
+### 12.4 `context.is_emergency` — resolved fail-safe
+
+The orchestrator resolves it (not the Commander). Ambiguity resolves to **true**
+(the non-blocking path). See `01-eligibility-agent.md` §6.2 for the table; the
+short version: emergency trigger, or an emergency-flagged row, or *no
+appointment*, or the field is missing → **true**. Only an unambiguous,
+appointment-backed, non-emergency booking is **false**.
+
+### 12.5 Trigger taxonomy — additions to §5
+
+| trigger `type` | emitted when | source |
+|----------------|--------------|--------|
+| `appointment_scheduled` | an appointment created with `is_emergency = false` | seed, `POST /api/appointments` |
+| `emergency_patient_registered` | an appointment/registration created with `is_emergency = true` | seed, `POST /api/appointments`, ER intake |
+| `eligibility_check_completed` | 01 wrote a terminal non-failure status (`verified_active` / `verified_inactive` / `insufficient_info`) | orchestrator, after 01 |
+| `eligibility_check_failed` | 01 resolved `check_failed` (payer off-network) or its pure core raised | orchestrator, after 01 |
+
+### 12.6 The rule block (E1–E7)
+
+Evaluated top to bottom, first match wins — same discipline as §6. `next_status`
+is `None` in every row (§12.3). `context.is_emergency` per §12.4.
+
+| # | Condition | action | route_to | reason_code | next_status |
+|---|-----------|--------|----------|-------------|-------------|
+| **E1** | `trigger.type == "emergency_patient_registered"` | `route` | `01-eligibility` | `eligibility_emergency_fire_and_forget` | `None` |
+| **E2** | `trigger.type == "appointment_scheduled"` **and** `context.is_emergency` | `route` | `01-eligibility` | `eligibility_emergency_fire_and_forget` | `None` |
+| **E3** | `trigger.type == "appointment_scheduled"` | `route` | `01-eligibility` | `eligibility_scheduled_ahead_of_time` | `None` |
+| **E4** | `trigger.type in {"eligibility_check_completed","eligibility_check_failed"}` **and** `context.is_emergency` | `no_action` | — | `eligibility_emergency_recorded` | `None` |
+| **E5** | `trigger.type == "eligibility_check_completed"` | `no_action` | — | `eligibility_scheduled_recorded` | `None` |
+| **E6** | `trigger.type == "eligibility_check_failed"` | `route` | `12-escalation` | `eligibility_check_failed_scheduled` | `None` |
+| **E7** | any eligibility trigger, nothing above matched — `context.is_emergency` ? | `no_action` : `route` | — / `12-escalation` | `eligibility_emergency_recorded` / `eligibility_unrecognized_state` | `None` |
+
+Notes (full rationale in `01-eligibility-agent.md` §6.3):
+
+- **E1/E2** — anything emergency-flagged is *fire-and-forget*: routed to 01 so
+  the check still runs, but the orchestrator runs it **detached** — nothing on a
+  care path awaits it, its exceptions are swallowed to a recorded `check_failed`,
+  and it chains no follow-on. Never routes to 12.
+- **E4** — one rule for **every** emergency completion/failure.
+  `verified_active`, `verified_inactive`, `insufficient_info`, `check_failed` are
+  handled identically: 01 already wrote the row; the Commander logs and stops.
+  `insufficient_info` (unidentified/unconscious patient) and `check_failed` carry
+  `recheck_recommended: true` and mean "re-check when more info exists" — a
+  routine follow-up, **not** an error, **not** an escalation.
+- **E5** — a scheduled check that completed. `verified_inactive` /
+  `insufficient_info` are recorded and surfaced to staff before the visit, not
+  escalated.
+- **E6** — the **only** eligibility rule that routes to 12, and unreachable when
+  `context.is_emergency` (E4 precedes it). A scheduled check that *failed* (not
+  the same as `insufficient_info`) becomes an operational "re-verify before the
+  visit" task for a human. `next_status` still `None` — 12 only logs.
+- **E7** — malformed eligibility state (mirror of R20), split so an
+  emergency-context fallthrough is *recorded*, never escalated.
+
+### 12.7 Worked traces
+
+| # | trigger | is_emergency | check.status | matches | outcome |
+|---|---------|--------------|--------------|---------|---------|
+| E-1 | `appointment_scheduled` | false | — | E3 | route → 01 (awaited, ahead of the visit) |
+| E-2 | `eligibility_check_completed` | false | `verified_inactive` | E5 | record, stop; staff see it before check-in |
+| E-3 | `eligibility_check_failed` | false | `check_failed` | E6 | route → 12 (operational re-verify) |
+| E-4 | `emergency_patient_registered` | true | — | E1 | route → 01 **detached**; care unaffected |
+| E-5 | `eligibility_check_completed` | true | `insufficient_info` | E4 | `no_action`; recheck_recommended; **not** escalated |
+| E-6 | `eligibility_check_failed` | true | `check_failed` | E4 | `no_action`; **not** escalated (contrast E-3) |
+| E-7 | `appointment_scheduled`, row `is_emergency = true` | true | — | E2 | route → 01 detached (contradiction → safe path) |
+| E-8 | `eligibility_check_completed`, no check row | true (fail-safe) | — | E7 | `no_action`, `eligibility_emergency_recorded` |
+| E-9 | `eligibility_check_completed`, no check row | false | — | E7 | route → 12, `eligibility_unrecognized_state` |
+
+### 12.8 Test plan (Commander-facing slice — full plan in `01-eligibility-agent.md` §12)
+
+`tests/eligibility_commander_test.py`, stdlib only, no stack:
+
+- one case per E1–E7;
+- a re-run of representative R-rule cases to prove R1–R20 are unchanged;
+- **the emergency-care-safety fuzz**: over
+  `trigger × check.status × is_emergency × appointment{present,None}`, assert
+  determinism, `next_status is None` on every result, and
+  `is_emergency ⟹ route_to != "12-escalation"` and
+  `route_to ∈ {None, "01-eligibility"}`;
+- a named `test_emergency_eligibility_is_never_in_a_gating_path`.
+
+### 12.9 Decisions — see `01-eligibility-agent.md` §13
+
+Resolved at review: E6 escalates for a scheduled `check_failed` (operational
+re-verify task); an emergency `check_failed` is recorded, never escalated (E4).
+Emergency registration creates only an `eligibility_checks` row. One shared
+`decide()` entry point. E5/E6/E4 additionally require a check row present in
+state; a completion trigger with no check row falls to E7.
