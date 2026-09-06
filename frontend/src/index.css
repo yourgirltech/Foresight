@@ -13,3 +13,194 @@ body,
 body {
   @apply bg-background text-text-primary antialiased;
 }
+
+/* ------------------------------------------------------------------ *
+ * Marketing-site motion. All of it is disabled under
+ * prefers-reduced-motion (see the media query at the bottom).
+ * ------------------------------------------------------------------ */
+@keyframes fp-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fp-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-9px);
+  }
+}
+
+@keyframes fp-marquee {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@keyframes fp-pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.7;
+  }
+  70% {
+    transform: scale(1.9);
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes fp-sheen {
+  from {
+    background-position: -140% 0;
+  }
+  to {
+    background-position: 240% 0;
+  }
+}
+
+.fp-float {
+  animation: fp-float 6s ease-in-out infinite;
+}
+.fp-float-slow {
+  animation: fp-float 8s ease-in-out infinite;
+}
+
+.fp-marquee-track {
+  animation: fp-marquee 38s linear infinite;
+}
+.fp-marquee-track:hover {
+  animation-play-state: paused;
+}
+
+.fp-pulse-ring::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  animation: fp-pulse-ring 2.4s ease-out infinite;
+}
+
+/* subtle dot-grid texture for feature backgrounds */
+.fp-dotgrid {
+  background-image: radial-gradient(
+    rgb(var(--color-text-muted) / 0.16) 1px,
+    transparent 1px
+  );
+  background-size: 22px 22px;
+}
+
+/* ------------------------------------------------------------------ *
+ * Hero photo background. On small screens the copy sits ON TOP of the
+ * photo (the grid stacks), so it needs a strong vertical scrim for
+ * readability. On lg+ the copy is in its own column, so the photo can
+ * dissolve left→right toward the dashboard preview instead.
+ * ------------------------------------------------------------------ */
+.hero-photo-bg {
+  background:
+    linear-gradient(
+      to bottom,
+      rgb(var(--color-background) / 0.92) 0%,
+      rgb(var(--color-background) / 0.78) 42%,
+      rgb(var(--color-background) / 0.55) 68%,
+      rgb(var(--color-background)) 96%
+    ),
+    url("/hero-lobby-bg.png") center / cover no-repeat;
+}
+@media (min-width: 1024px) {
+  .hero-photo-bg {
+    background:
+      linear-gradient(
+        to right,
+        rgb(var(--color-background)) 0%,
+        rgb(var(--color-background) / 0.94) 26%,
+        rgb(var(--color-background) / 0.55) 46%,
+        rgb(var(--color-background) / 0) 76%
+      ),
+      linear-gradient(
+        to bottom,
+        rgb(var(--color-background) / 0) 32%,
+        rgb(var(--color-background)) 78%
+      ),
+      url("/hero-lobby-bg.png") center right / cover no-repeat;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Auth screens (login / signup) — a quiet staggered entrance for the
+ * content and a slow ambient drift on the brand-panel glow. All of it
+ * is disabled under prefers-reduced-motion (see below).
+ * ------------------------------------------------------------------ */
+@keyframes auth-rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes auth-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  50% {
+    transform: translate3d(-26px, 20px, 0) scale(1.1);
+  }
+}
+
+.auth-rise {
+  animation: auth-rise 0.7s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.auth-rise-1 {
+  animation-delay: 0.04s;
+}
+.auth-rise-2 {
+  animation-delay: 0.1s;
+}
+.auth-rise-3 {
+  animation-delay: 0.16s;
+}
+.auth-rise-4 {
+  animation-delay: 0.22s;
+}
+.auth-rise-5 {
+  animation-delay: 0.28s;
+}
+
+.auth-drift {
+  animation: auth-drift 17s ease-in-out infinite;
+}
+.auth-drift-slow {
+  animation: auth-drift 24s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-float,
+  .fp-float-slow,
+  .fp-marquee-track,
+  .auth-rise,
+  .auth-drift,
+  .auth-drift-slow {
+    animation: none !important;
+  }
+  .fp-pulse-ring::after {
+    display: none;
+  }
+}

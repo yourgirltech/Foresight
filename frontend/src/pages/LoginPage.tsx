@@ -16,7 +16,7 @@ export function LoginPage() {
 
   if (status === "loading") return <FullPageSpinner />;
   if (status === "ready") {
-    const to = (location.state as { from?: Location } | null)?.from?.pathname ?? "/";
+    const to = (location.state as { from?: Location } | null)?.from?.pathname ?? "/app";
     return <Navigate to={to} replace />;
   }
   if (status === "noOrg") return <Navigate to="/onboarding" replace />;
@@ -38,14 +38,14 @@ export function LoginPage() {
       footer={
         <>
           No account?{" "}
-          <Link to="/signup" className="font-medium text-brand-600 hover:text-brand-700">
+          <Link to="/signup" className="font-medium text-accent hover:text-accent-strong">
             Sign up
           </Link>
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <label className="block text-sm font-medium text-slate-700">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <label className="block text-sm font-medium text-text-secondary">
           Email
           <input
             type="email"
@@ -56,7 +56,7 @@ export function LoginPage() {
             className={fieldClass}
           />
         </label>
-        <label className="block text-sm font-medium text-slate-700">
+        <label className="block text-sm font-medium text-text-secondary">
           Password
           <input
             type="password"
@@ -67,9 +67,11 @@ export function LoginPage() {
             className={fieldClass}
           />
         </label>
-        <button type="submit" disabled={busy} className={buttonClass}>
-          {busy ? "Signing in…" : "Log in"}
-        </button>
+        <div className="pt-1">
+          <button type="submit" disabled={busy} className={buttonClass}>
+            {busy ? "Signing in…" : "Log in"}
+          </button>
+        </div>
         <ErrorText>{error}</ErrorText>
       </form>
     </AuthCard>

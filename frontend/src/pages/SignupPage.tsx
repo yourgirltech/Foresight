@@ -19,7 +19,7 @@ export function SignupPage() {
   if (status === "loading") return <FullPageSpinner />;
 
   // Already signed in: send them where they belong.
-  if (status === "ready") return <Navigate to="/" replace />;
+  if (status === "ready") return <Navigate to="/app" replace />;
   if (status === "noOrg") {
     return (
       <Navigate to={inviteToken ? `/accept-invite?token=${inviteToken}` : "/onboarding"} replace />
@@ -53,15 +53,15 @@ export function SignupPage() {
           Already have an account?{" "}
           <Link
             to={inviteToken ? `/login?token=${inviteToken}` : "/login"}
-            className="font-medium text-brand-600 hover:text-brand-700"
+            className="font-medium text-accent hover:text-accent-strong"
           >
             Log in
           </Link>
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <label className="block text-sm font-medium text-slate-700">
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <label className="block text-sm font-medium text-text-secondary">
           Email
           <input
             type="email"
@@ -72,7 +72,7 @@ export function SignupPage() {
             className={fieldClass}
           />
         </label>
-        <label className="block text-sm font-medium text-slate-700">
+        <label className="block text-sm font-medium text-text-secondary">
           Password
           <input
             type="password"
@@ -84,9 +84,11 @@ export function SignupPage() {
             className={fieldClass}
           />
         </label>
-        <button type="submit" disabled={busy} className={buttonClass}>
-          {busy ? "Creating account…" : "Sign up"}
-        </button>
+        <div className="pt-1">
+          <button type="submit" disabled={busy} className={buttonClass}>
+            {busy ? "Creating account…" : "Sign up"}
+          </button>
+        </div>
         <ErrorText>{error}</ErrorText>
       </form>
     </AuthCard>

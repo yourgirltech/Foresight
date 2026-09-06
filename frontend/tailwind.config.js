@@ -7,6 +7,25 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
+      // Fraunces = marketing headline accent ONLY (apply `font-display`).
+      // Everything else keeps Tailwind's default `font-sans` system stack —
+      // body copy, nav, buttons, and the whole authenticated app.
+      fontFamily: {
+        display: ['"Fraunces"', "ui-serif", "Georgia", "Cambria", "serif"],
+        // Auth screens only (login / signup) — a warm grotesque that pairs
+        // with Fraunces. Applied via `font-grotesk` on the AuthCard root, not
+        // globally: the rest of the app keeps the default `font-sans` stack.
+        grotesk: [
+          '"Hanken Grotesk"',
+          "ui-sans-serif",
+          "system-ui",
+          "-apple-system",
+          "Segoe UI",
+          "Roboto",
+          "sans-serif",
+        ],
+      },
+
       // EXTEND, never replace — replacing theme.colors wipes Tailwind's default
       // palette (slate/red/green/…), which broke an earlier project.
       colors: {
