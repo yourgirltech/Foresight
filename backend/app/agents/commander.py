@@ -19,6 +19,15 @@ is in ELIGIBILITY_TRIGGERS, before R1. The care-safety invariant it enforces:
 every E-rule returns `next_status is None` (the Commander never transitions a
 care object off an eligibility trigger), and no rule reachable with an emergency
 signal routes to `12-escalation`.
+
+Phase 3 adds a THIRD, disjoint rule table for prior authorization (A1-A11,
+docs/agents/00-commander.md §13 and docs/agents/02-prior-auth-agent.md).
+`decide()` dispatches to `_decide_prior_auth` when the trigger is in
+PRIOR_AUTH_TRIGGERS, after the eligibility check and before R1. Prior auth MAY
+gate an elective service (correctly); it must NEVER gate emergency / urgent care.
+The Commander enforces the emergency half structurally: every A-rule returns
+`next_status is None`, and no rule reachable with an emergency signal routes to
+`12-escalation` OR to `await_human` OR to a submission.
 """
 from __future__ import annotations
 
@@ -53,6 +62,19 @@ ELIGIBILITY_TRIGGERS = {
     "eligibility_check_failed",
 }
 ELIGIBILITY_COMPLETION_TRIGGERS = {"eligibility_check_completed", "eligibility_check_failed"}
+
+# --- Phase 3: the prior-auth trigger family (00-commander.md §13) --------------
+# A third disjoint rule table (A1-A11). decide() dispatches here after the
+# eligibility check and BEFORE R1; a trigger belongs to exactly one family.
+PRIOR_AUTH_TRIGGERS = {
+    "prior_auth_requested",
+    "prior_auth_emergency",
+    "prior_auth_determined",
+    "prior_auth_submission_approved",
+    "prior_auth_submission_declined",
+    "prior_auth_response_received",
+}
+PRIOR_AUTH_NEEDS_HUMAN_RESPONSES = {"info_needed", "denied"}
 
 
 @dataclass(frozen=True)
@@ -143,14 +165,141 @@ def _decide_eligibility(state: dict, trigger: dict) -> CommanderDecision:
     )
 
 
+def _is_prior_auth_emergency_context(state: dict, trigger: dict) -> bool:
+    """Resolve whether this prior-auth trigger concerns emergency / urgent care.
+    Ambiguity ALWAYS resolves to True — the non-blocking, no-auth path
+    (00-commander.md §13.4). The only way to get False is an unambiguous,
+    appointment-backed, non-emergency, non-'emergency'-place-of-service row."""
+    if (trigger or {}).get("type") == "prior_auth_emergency":
+        return True
+    pa = state.get("prior_authorization")
+    if isinstance(pa, dict):
+        if pa.get("is_emergency") is True:
+            return True
+        if pa.get("place_of_service") == "emergency":
+            return True
+    appt = state.get("appointment")
+    if isinstance(appt, dict) and appt.get("is_emergency") is True:
+        return True
+    ctx = state.get("context") or {}
+    if ctx.get("is_emergency") is True:
+        return True
+    # fail-safe: no appointment at all, or the flag was never resolved
+    if appt is None and ctx.get("is_emergency") is None:
+        return True
+    return False
+
+
+def _decide_prior_auth(state: dict, trigger: dict) -> CommanderDecision:
+    """The prior-auth rule table A1-A11 (00-commander.md §13.6). Pure.
+
+    INVARIANT: every return here has next_status=None — the Commander never
+    writes a status off a patient-access trigger (identical to eligibility).
+    And no branch reachable with `emergency` True routes to 12-escalation, to
+    await_human, or to a submission (02.submit is A7 only, guarded not-emergency).
+    """
+    ttype = (trigger or {}).get("type")
+    emergency = _is_prior_auth_emergency_context(state, trigger)
+    pa = state.get("prior_authorization")
+    has_pa = isinstance(pa, dict)
+    pa_status = pa.get("status") if has_pa else None
+    response_status = (pa.get("response_payload") or {}).get("response_status") if has_pa else None
+
+    # A1 — an emergency registration: determine detached, before anything else
+    if ttype == "prior_auth_emergency":
+        return CommanderDecision(
+            "route", "prior_auth_emergency_determine", "02-prior-auth", None
+        )
+
+    # A2 — a scheduled request on an emergency-flagged row: take the safe path
+    if ttype == "prior_auth_requested" and emergency:
+        return CommanderDecision(
+            "route", "prior_auth_emergency_determine", "02-prior-auth", None
+        )
+
+    # A3 — a normal scheduled request: determine ahead of time
+    if ttype == "prior_auth_requested":
+        return CommanderDecision(
+            "route", "prior_auth_determine", "02-prior-auth", None
+        )
+
+    # A4 — ANY emergency determination: record and stop. Never a draft, never
+    # await_human, never an escalation. (By P5 an emergency determination can
+    # only be emergency_exempt / insufficient_info anyway — A4 makes it explicit.)
+    if ttype == "prior_auth_determined" and emergency and has_pa:
+        return CommanderDecision(
+            "no_action", "prior_auth_emergency_exempt_recorded", None, None
+        )
+
+    # A5 — a scheduled determination that auth IS required: park for a human
+    if ttype == "prior_auth_determined" and pa_status == "required_draft":
+        return CommanderDecision(
+            "await_human", "prior_auth_awaiting_submission_approval", None, None
+        )
+
+    # A6 — a scheduled determination of not_required / insufficient_info: record
+    if ttype == "prior_auth_determined" and has_pa:
+        return CommanderDecision(
+            "no_action", "prior_auth_determination_recorded", None, None
+        )
+
+    # A7 — a human approved submitting a drafted request. The ONLY route to
+    # 02.submit, behind three guards: the approval trigger, status required_draft,
+    # and not emergency. The structural analogue of R9 behind R7/R8.
+    if (
+        ttype == "prior_auth_submission_approved"
+        and pa_status == "required_draft"
+        and not emergency
+    ):
+        return CommanderDecision("route", "prior_auth_submit", "02-prior-auth", None)
+
+    # A8 — a human declined submitting: record and stop
+    if ttype == "prior_auth_submission_declined":
+        return CommanderDecision(
+            "no_action", "prior_auth_submission_declined_recorded", None, None
+        )
+
+    # A9 — the payer approved: record and stop
+    if ttype == "prior_auth_response_received" and response_status == "approved":
+        return CommanderDecision(
+            "no_action", "prior_auth_approved_recorded", None, None
+        )
+
+    # A10 — the payer denied / needs info (scheduled): a real human task. The
+    # ONLY prior-auth rule that routes to 12, and unreachable when emergency
+    # (guarded, and by P5/P6 an emergency PA never has a submission).
+    if (
+        ttype == "prior_auth_response_received"
+        and response_status in PRIOR_AUTH_NEEDS_HUMAN_RESPONSES
+        and not emergency
+    ):
+        return CommanderDecision(
+            "route", "prior_auth_needs_human", "12-escalation", None
+        )
+
+    # A11 — malformed prior-auth state (mirror of R20 / E7), split so an
+    # emergency-context fallthrough is recorded, never escalated.
+    if emergency:
+        return CommanderDecision(
+            "no_action", "prior_auth_emergency_exempt_recorded", None, None
+        )
+    return CommanderDecision(
+        "route", "prior_auth_unrecognized_state", "12-escalation", None
+    )
+
+
 def decide(state: dict, trigger: dict) -> CommanderDecision:
     """First matching rule wins. Pure.
 
-    Dispatch: an eligibility trigger goes to the E1-E7 table (§12.6); everything
-    else goes to the claims table R1-R20 (§6). The two never interleave.
+    Dispatch: an eligibility trigger goes to the E1-E7 table (§12.6); a prior-auth
+    trigger goes to the A1-A11 table (§13.6); everything else goes to the claims
+    table R1-R20 (§6). The three never interleave.
     """
-    if (trigger or {}).get("type") in ELIGIBILITY_TRIGGERS:
+    ttype_dispatch = (trigger or {}).get("type")
+    if ttype_dispatch in ELIGIBILITY_TRIGGERS:
         return _decide_eligibility(state, trigger)
+    if ttype_dispatch in PRIOR_AUTH_TRIGGERS:
+        return _decide_prior_auth(state, trigger)
 
     claim = state.get("claim") or {}
     rec = state.get("recommendation")

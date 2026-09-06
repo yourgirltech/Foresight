@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { CheckHistory, EmergencyPill } from "../components/eligibility";
+import { PriorAuthBadge } from "../components/priorAuth";
 import { apiFetch } from "../lib/api";
 import { prettyActor } from "../components/claims";
 import type { AppointmentDetail, EligibilityDecisionResult } from "../lib/types";
@@ -43,7 +44,7 @@ export function AppointmentDetailPage() {
   }
   if (!data) return <p className="text-slate-400">Loading…</p>;
 
-  const { appointment, payer, checks, activity_log } = data;
+  const { appointment, payer, checks, prior_authorizations, activity_log } = data;
   const latest = checks[checks.length - 1] ?? null;
 
   async function recheck() {
@@ -121,6 +122,45 @@ export function AppointmentDetailPage() {
             {busy ? "Re-checking…" : "Re-check eligibility"}
           </button>
         </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5">
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-slate-700">
+            Prior authorization{" "}
+            <span className="font-normal text-slate-400">· 02, informs staff — never gates the visit</span>
+          </h2>
+          <Link to="/app/prior-auth" className="text-xs font-medium text-brand-600 hover:underline">
+            All prior auth →
+          </Link>
+        </div>
+        {prior_authorizations.length === 0 ? (
+          <p className="mt-3 text-sm text-slate-500">
+            No prior-authorization check for this appointment.
+          </p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {prior_authorizations.map((pa) => (
+              <li key={pa.id} className="flex flex-wrap items-center gap-2 text-sm">
+                <Link
+                  to={`/app/prior-auth/${pa.id}`}
+                  className="font-medium text-brand-700 hover:underline"
+                >
+                  {pa.procedure_code || "no code"}
+                </Link>
+                {pa.procedure_description && (
+                  <span className="text-xs text-slate-400">{pa.procedure_description}</span>
+                )}
+                <PriorAuthBadge status={pa.status} />
+                {pa.status === "emergency_exempt" && (
+                  <span className="text-xs text-emerald-700">
+                    not required — emergency exemption
+                  </span>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5">

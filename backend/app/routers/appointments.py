@@ -77,12 +77,20 @@ async def get_appointment(appointment_id: str, ctx: AuthContext = Depends(requir
         ctx.access_token, "/eligibility_checks",
         {"appointment_id": f"eq.{appointment_id}", "select": "*", "order": "created_at.asc"},
     )
+    pas = await rest_get(
+        ctx.access_token, "/prior_authorizations",
+        {"appointment_id": f"eq.{appointment_id}", "select": "*", "order": "created_at.asc"},
+    )
+    # only the newest of each resubmit chain
+    pa_superseded = {p["previous_auth_id"] for p in pas if p.get("previous_auth_id")}
+    prior_authorizations = [p for p in pas if p["id"] not in pa_superseded]
     activity = await rest_get(
         ctx.access_token, "/activity_log",
         {"appointment_id": f"eq.{appointment_id}", "select": "actor,action,details,created_at",
          "order": "created_at"},
     )
-    return {"appointment": appt, "payer": payer, "checks": checks, "activity_log": activity}
+    return {"appointment": appt, "payer": payer, "checks": checks,
+            "prior_authorizations": prior_authorizations, "activity_log": activity}
 
 
 @router.get("/api/eligibility-checks/{check_id}")

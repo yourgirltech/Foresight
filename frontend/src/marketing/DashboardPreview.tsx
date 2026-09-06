@@ -27,6 +27,16 @@ const SAMPLE: DashboardData = {
     check_failed: 2,
     emergency: 3,
   },
+  prior_auth: {
+    total: 31,
+    needs_action: 7,
+    required_draft: 4,
+    authorized: 18,
+    denied: 2,
+    info_needed: 1,
+    not_required: 9,
+    emergency_exempt: 1,
+  },
 };
 
 export function DashboardPreview({ width = 1100 }: { width?: number }) {

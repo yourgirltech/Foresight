@@ -192,6 +192,7 @@ one job and return control:
 | # | Agent | LLM? | Job |
 |---|-------|------|-----|
 | 01 | eligibility | no | simulated eligibility verification — patient + payer → coverage status (Phase 2; `agents/01-eligibility-agent.md`) |
+| 02 | prior-auth | no | simulated prior-authorization — appointment + payer + procedure → auth determination, drafted request, and (after human approval) a simulated payer response (Phase 3; `agents/02-prior-auth-agent.md`) |
 | 06 | analyzer | no | deterministic rule engine — find issues, score risk (§6.1) |
 | 07 | reasoning | **yes** | plain-language explanation of the issue list, strictly grounded |
 | 08 | recommendation | no | issue list → action + confidence band + `low_confidence` |
@@ -264,13 +265,22 @@ Priority order: `missing_authorization` → `missing_documentation` →
 
 ## 7. Still not built
 
-- Prior-auth, patient comms, voice — agent numbers 02–05, 11 are reserved for
-  these. **01 (eligibility) shipped in Phase 2** —
+- Patient comms, voice — agent numbers 03–05, 11 are reserved for these.
+  **01 (eligibility) shipped in Phase 2** —
   [`agents/01-eligibility-agent.md`](agents/01-eligibility-agent.md): a
   deterministic eligibility *simulation* (no real clearinghouse yet), a second
   disjoint Commander rule block (E1–E7, `00-commander.md` §12), and the
   structurally-enforced rule that verification never gates emergency care.
+- **02 (prior authorization) shipped in Phase 3** —
+  [`agents/02-prior-auth-agent.md`](agents/02-prior-auth-agent.md) +
+  [`PHASE-3.md`](PHASE-3.md): a deterministic auth-determination + drafted-request
+  + simulated-payer-response simulation, a third disjoint Commander rule block
+  (A1–A11, `00-commander.md` §13), the Phase 1 human-approval gate reused for
+  submission, and the structurally-enforced rule that prior auth never gates
+  emergency / urgent care.
 - Real eligibility integration (01 simulates in Phase 2, exactly as 09/10 do).
+- Real prior-auth integration (02 simulates in Phase 3 — X12 278 / payer portal
+  is later).
 - Real external delivery — 09/10 do a **simulated** send in Phase 1.
 - Payer adjudication sync (`denied`/`paid`/`rejected` are set only by the seed).
 - A "mark manual action complete" flow out of `manual_action_required`.
@@ -284,3 +294,12 @@ Priority order: `missing_authorization` → `missing_documentation` →
 - **Phase 1:** a claim is analyzed, explained, and recommended on; a human
   approves or declines; the right agent (or human hand-off) executes; every row
   is tenant-scoped. [`PHASE-1.md`](PHASE-1.md).
+- **Phase 2:** a scheduled appointment's coverage is verified ahead of time and
+  only informs staff; an emergency registration's check runs detached and never
+  gates care; every eligibility Commander decision has `next_status is None`.
+  [`PHASE-2.md`](PHASE-2.md).
+- **Phase 3:** an elective procedure's prior-auth requirement is determined ahead
+  of time, a request is drafted, a human approves submitting it, and a simulated
+  payer response is recorded; an emergency service is `emergency_exempt` with no
+  draft, no approval step, and no escalation; every prior-auth Commander decision
+  has `next_status is None`. [`PHASE-3.md`](PHASE-3.md).
