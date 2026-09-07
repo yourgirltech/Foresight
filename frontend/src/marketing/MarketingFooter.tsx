@@ -31,7 +31,7 @@ const COLUMNS: { title: string; links: { label: string; to: string }[] }[] = [
 export function MarketingFooter() {
   return (
     <footer className="border-t border-border bg-surface">
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-16 sm:px-8 lg:flex-row lg:justify-between lg:gap-20 lg:px-10 lg:py-20">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-16 sm:px-8 lg:flex-row lg:gap-16 lg:px-10 lg:py-20">
         <div className="max-w-xs">
           <Logo withSubtitle />
           <p className="mt-4 text-sm leading-[1.6] text-text-secondary">
