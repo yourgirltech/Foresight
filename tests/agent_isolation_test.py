@@ -269,6 +269,41 @@ async def main() -> int:
         len(svc_get("patient_coverages", {"organization_id": f"eq.{org_b}", "select": "id"})) == 1
         and len(svc_get("patient_coverages", {"organization_id": f"eq.{org_a}", "select": "id"})) == 1)
 
+    # ---- Phase 4: a cost estimate for A never reads B's prices / coverages ----
+    from app.agents import cost_estimate as ce  # noqa: PLC0415
+
+    svc_write("POST", "procedure_prices", {}, {
+        "organization_id": org_a, "procedure_code": "99213",
+        "description": "Office visit", "base_price": 150.00, "active": True})
+    svc_write("POST", "procedure_prices", {}, {
+        "organization_id": org_b, "procedure_code": "99213",
+        "description": "Office visit", "base_price": 999.00, "active": True})  # would change the number
+
+    ce_appt = svc_write("POST", "appointments", {}, {
+        "organization_id": org_a, "patient_name": "Isolation CE Probe",
+        "patient_member_id": "", "patient_dob": "1993-03-03",
+        "scheduled_at": "2026-12-20T00:00:00Z", "is_emergency": False})[0]
+    a_price_rows = svc_get("procedure_prices", {"organization_id": f"eq.{org_a}", "select": "*"})
+    priced = ce.price(["99213"], a_price_rows)
+    chk("price() over A's rows uses A's price (150.00), never B's 999.00",
+        priced.subtotal == 150.00, str(priced))
+    # no coverage for this patient in A -> gate allows
+    a_cov = svc_get("patient_coverages", {
+        "organization_id": f"eq.{org_a}", "patient_name": "eq.Isolation CE Probe", "select": "*"})
+    chk("the cost-estimate gate allows an affirmed self-pay patient with no A coverage",
+        ce.gate_reason(True, [c for c in a_cov if c.get("termination_date") is None]) is None)
+    est = await db.insert_cost_estimate(org_a, {
+        "appointment_id": ce_appt["id"], "patient_name": "Isolation CE Probe",
+        "patient_dob": "1993-03-03", "line_items": [line.as_dict() for line in priced.lines],
+        "subtotal": priced.subtotal, "patient_summary": ce.plain_template(priced),
+        "disclaimer_text": ce.NSA_GFE_DISCLAIMER, "disclaimer_version": ce.NSA_GFE_DISCLAIMER_VERSION,
+        "self_pay_confirmed": True, "model": None})
+    stored = svc_get("cost_estimates", {"id": f"eq.{est['id']}", "select": "organization_id,subtotal"})[0]
+    chk("A's stored estimate carries organization_id == A and A's subtotal",
+        stored["organization_id"] == org_a and float(stored["subtotal"]) == 150.00, str(stored))
+    chk("no cost_estimates row exists in tenant B",
+        svc_get("cost_estimates", {"organization_id": f"eq.{org_b}", "select": "id"}) == [])
+
     return chk.summary("agent pipeline never crosses a tenant boundary.")
 
 

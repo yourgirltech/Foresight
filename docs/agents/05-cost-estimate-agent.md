@@ -3,9 +3,34 @@
 _Spec. Written before implementation, per the Phase 4 plan. Cross-check this
 document before any agent-05 code is written._
 
-_Status: **SPEC — awaiting review.** Companion: [`../PHASE-4.md`](../PHASE-4.md).
-No code exists yet. Depends on 04 (`patient_coverages`) for the self-pay gate —
-build 05 last._
+_Status: **BUILT** (2026-09-07). Companion: [`../PHASE-4.md`](../PHASE-4.md).
+Implementation: migration `supabase/migrations/20260907000004_cost_estimates.sql`
+(`procedure_prices` + `cost_estimates`), `backend/app/agents/cost_estimate.py`
+(`price()` pure, `gate_reason()` pure, `phrase()` AI-wording-only,
+`plain_template()` fallback, `NSA_GFE_DISCLAIMER` + `NSA_GFE_DISCLAIMER_VERSION`
++ `GFE_DISPUTE_THRESHOLD_USD` / `GFE_DISPUTE_WINDOW_DAYS` named constants),
+`backend/app/routers/cost_estimates.py`, `scripts/seed_procedure_prices.py`,
+`frontend/src/components/costEstimate.tsx` + `frontend/src/pages/CostEstimatePage.tsx`
+(`/app/cost-estimates/:id`, print-friendly). Tests: `tests/cost_estimate_test.py`
+(price arithmetic + the exhaustive `(self_pay × has_coverage)` gate grid +
+disclaimer constant), `tests/e2e_cost_estimate_test.py`,
+`tests/cost_estimate_live_test.py` (`--live`), and the cost-estimate slice of
+`tests/agent_isolation_test.py`. `bash scripts/run_cost_estimate_proof.sh`._
+
+_**`NSA_GFE_DISCLAIMER` carries a "REQUIRES LEGAL SIGN-OFF BEFORE PRODUCTION"
+comment** (module docstring + the constant's own comment block), consistent with
+PHASE-4.md open item **O-3** and `../BEFORE-PHI.md` item **C-3**. The
+`nsa-gfe-2026-01` version string lets the wording be revised after sign-off
+without rewriting stored estimates._
+
+_As-built notes on §10: (1) disclaimer is a faithful CMS-model-language draft,
+not counsel-reviewed — O-3; (2) the gate keeps BOTH conditions (`self_pay: true`
+affirmation AND no active coverage); (3) the estimate is a dedicated printable
+route; (4) the document notes it covers the listed services; (5) the seed reuses
+the prior-auth code set with illustrative flat self-pay prices. One product
+call: `phrase()` is given the service NAMES and the total only — never the
+per-line prices — so the model cannot restate a figure, and the summary carries
+exactly one dollar amount._
 
 ---
 

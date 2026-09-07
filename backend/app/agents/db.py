@@ -443,3 +443,18 @@ async def delete_patient_coverage(org_id: str, coverage_id: str) -> None:
         {"organization_id": f"eq.{org_id}", "id": f"eq.{coverage_id}"},
         None,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — cost estimate / Good Faith Estimate (05). NOT a Commander agent.
+# price() computes the number; this only stores the finished document. Scoped
+# by org_id, resolved from the verified session.
+# --------------------------------------------------------------------------- #
+async def get_cost_estimate(estimate_id: str) -> dict | None:
+    rows = await _get("/cost_estimates", {"id": f"eq.{estimate_id}", "select": "*", "limit": 1})
+    return rows[0] if rows else None
+
+
+async def insert_cost_estimate(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/cost_estimates", {}, {**fields, "organization_id": org_id})
+    return rows[0]

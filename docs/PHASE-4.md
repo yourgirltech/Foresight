@@ -1,11 +1,13 @@
 # Phase 4 — Patient-access data tools (03 OCR · 04 COB · 05 Cost Estimate)
 
-_Status: **03 BUILT · 04 BUILT · 05 pending** (2026-09-07).
+_Status: **03 BUILT · 04 BUILT · 05 BUILT** (2026-09-07). Phase 4 complete.
 [`agents/03-ocr-agent.md`](agents/03-ocr-agent.md) — insurance card OCR +
 retention purge. [`agents/04-cob-agent.md`](agents/04-cob-agent.md) —
 coordination of benefits, the pure R0-R7 rule ladder.
-[`agents/05-cost-estimate-agent.md`](agents/05-cost-estimate-agent.md) — next.
-Order per agent: migration → agent → seed → UI → tests._
+[`agents/05-cost-estimate-agent.md`](agents/05-cost-estimate-agent.md) — No
+Surprises Act Good Faith Estimate: deterministic pricing + self-pay gate + a
+versioned disclaimer constant; the AI only phrases the number.
+`commander.py` is byte-identical to after Phase 3._
 
 **Goal.** Close out the "before / at the point of care" stage — the three things
 a front desk needs the moment a patient is in front of them, none of which is a
@@ -100,6 +102,6 @@ and compliance items.
 |---|------|-------|-------|
 | O-1 | **Schedule the card-image retention purge.** `scripts/purge_expired_card_images.py` + `app.card_retention.purge_expired_images()` delete confirmed-scan images past `image_retain_until` and rejected-scan images (retention 0), stamping `card_scans.image_purged_at`. The job is **built, tested (`tests/card_scan_purge_test.py`), and idempotent** — it is **run manually**, which is fine for the demo/pilot phase (synthetic data only). Before any real PHI: it needs a real recurring trigger (cron / worker / scheduled Supabase Edge Function). Wiring it is a small engineering task, but **which mechanism and how often** depends on the same compliance retention review as O-2 — so it is deliberately parked on [`BEFORE-PHI.md`](BEFORE-PHI.md) (item C-2), not scheduled speculatively now. There is no scheduler in the codebase yet (Phase 1–3 are all request/event-driven). |
 | O-2 | **`ocr.CONFIRM_IMAGE_RETENTION_DAYS = 90` is provisional.** Flagged in-code for compliance review before production — legal/compliance must set the real retention period and sign off (03 §9.1). [`BEFORE-PHI.md`](BEFORE-PHI.md) C-1. |
-| O-3 | **`NSA_GFE_DISCLAIMER` (05)** must carry a "needs legal sign-off before any real patient sees it" comment — enforce when 05 is built. [`BEFORE-PHI.md`](BEFORE-PHI.md) C-3. |
+| O-3 | **`NSA_GFE_DISCLAIMER` (05) needs legal sign-off before any real patient sees it.** Done in code: `backend/app/agents/cost_estimate.py` carries the constant + a "REQUIRES LEGAL SIGN-OFF BEFORE PRODUCTION" comment block, and `tests/cost_estimate_test.py` asserts that marker is present. The disclaimer is a faithful CMS-model-language draft; a lawyer / compliance consultant must approve the exact wording, then bump `NSA_GFE_DISCLAIMER_VERSION`. [`BEFORE-PHI.md`](BEFORE-PHI.md) C-3. |
 
 See each agent doc for the full data model, contract, and test plan.

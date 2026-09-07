@@ -6,6 +6,7 @@ from .routers import (
     appointments,
     card_scans,
     claims,
+    cost_estimates,
     coverages,
     dashboard,
     demo,
@@ -37,6 +38,7 @@ app.include_router(appointments.router)
 app.include_router(prior_auth.router)
 app.include_router(card_scans.router)
 app.include_router(coverages.router)
+app.include_router(cost_estimates.router)
 app.include_router(dashboard.router)
 app.include_router(demo.router)
 
