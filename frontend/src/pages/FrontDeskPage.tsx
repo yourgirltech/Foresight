@@ -126,34 +126,37 @@ export function FrontDeskPage() {
 
       {error && <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
 
-      {/* --- Capture --- */}
-      <section className="rounded-xl border border-dashed border-slate-300 bg-white p-6">
-        <div className="flex flex-wrap items-center justify-center gap-3">
+      {/* --- Capture — camera first (front desk is usually a tablet) --- */}
+      <section className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
+        <button
+          onClick={() => cameraRef.current?.click()}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-md bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+        >
+          <Camera className="h-4 w-4" />
+          {busy ? "Reading the card…" : "Take a photo of the card"}
+        </button>
+        <p className="mt-3 text-xs text-slate-400">
+          Opens the camera on a phone or tablet.{" "}
           <button
             onClick={() => fileRef.current?.click()}
             disabled={busy}
-            className="inline-flex items-center gap-2 rounded-md bg-brand-600 px-4 py-2 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
+            className="inline-flex items-center gap-1 font-medium text-brand-600 hover:underline disabled:opacity-60"
           >
-            <Upload className="h-4 w-4" />
-            {busy ? "Reading the card…" : "Upload a card photo"}
-          </button>
-          <button
-            onClick={() => cameraRef.current?.click()}
-            disabled={busy}
-            className="inline-flex items-center gap-2 rounded-md border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
-          >
-            <Camera className="h-4 w-4" />
-            Take a photo
-          </button>
-        </div>
-        <p className="mt-3 text-center text-xs text-slate-400">
+            <Upload className="h-3 w-3" />
+            Upload a saved image
+          </button>{" "}
+          instead.
+        </p>
+        <p className="mt-2 text-xs text-slate-400">
           JPEG / PNG / WebP / HEIC, up to 10 MB. The image is stored privately and is only used to
           extract the fields below.
         </p>
         <input
-          ref={fileRef}
+          ref={cameraRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,image/heic"
+          accept="image/*"
+          capture="environment"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
@@ -162,10 +165,9 @@ export function FrontDeskPage() {
           }}
         />
         <input
-          ref={cameraRef}
+          ref={fileRef}
           type="file"
-          accept="image/*"
-          capture="environment"
+          accept="image/jpeg,image/png,image/webp,image/heic"
           className="hidden"
           onChange={(e) => {
             const f = e.target.files?.[0];
