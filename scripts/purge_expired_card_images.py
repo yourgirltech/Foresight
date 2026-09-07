@@ -8,8 +8,9 @@ The extracted text on card_scans is untouched. Idempotent — safe to re-run and
 safe to cron.
 
 No ANTHROPIC_API_KEY needed. Needs the service-role key + the local stack (or
-prod env vars). This is currently a MANUAL job — see docs/PHASE-4.md for the
-still-open task of wiring it to a scheduler.
+prod env vars). This is currently a MANUAL job — fine for the demo/pilot phase. Wiring it to a
+scheduler (and setting the frequency) is gated on the compliance retention
+review: docs/PHASE-4.md O-1, docs/BEFORE-PHI.md C-2.
 
 Usage:
     python scripts/purge_expired_card_images.py            # do it

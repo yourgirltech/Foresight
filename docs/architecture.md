@@ -285,6 +285,10 @@ Priority order: `missing_authorization` → `missing_documentation` →
 - Payer adjudication sync (`denied`/`paid`/`rejected` are set only by the seed).
 - A "mark manual action complete" flow out of `manual_action_required`.
 - Role management UI, SSO, audit-log surfacing, org deletion.
+- **Real PHI is not supported yet** — Foresight runs on synthetic data. The
+  contract / compliance / security gate before that changes is
+  [`BEFORE-PHI.md`](BEFORE-PHI.md) (BAA, retention policy, disclaimer legal
+  review, scheduling the card-image purge, secrets management, pen test).
 
 ## 8. Acceptance
 

@@ -92,12 +92,14 @@ UI layer** instead of in a rule table:
 ## Open items carried forward
 
 Tracked so they are not lost as later phases land. Add to this list rather than
-leaving a TODO in code.
+leaving a TODO in code. O-1/O-2/O-3 gate **real PHI**, not the demo/pilot phase —
+they are also on the [`BEFORE-PHI.md`](BEFORE-PHI.md) checklist alongside the BAA
+and compliance items.
 
 | # | Item | State | Notes |
 |---|------|-------|-------|
-| O-1 | **Schedule the card-image retention purge.** `scripts/purge_expired_card_images.py` + `app.card_retention.purge_expired_images()` delete confirmed-scan images past `image_retain_until` and rejected-scan images (retention 0), stamping `card_scans.image_purged_at`. The job is **built, tested (`tests/card_scan_purge_test.py`), and idempotent**, but it is **run manually** — nothing invokes it on a schedule. This is the codebase's first job that needs a real recurring trigger (there is no scheduler yet; Phase 1–3 are all request/event-driven). Wire it to cron / a worker / Supabase scheduled function when scheduler infra is introduced (a natural Phase 5+ "operational jobs" item). Until then: run it manually during any pilot with real PHI. |
-| O-2 | **`ocr.CONFIRM_IMAGE_RETENTION_DAYS = 90` is provisional.** Flagged in-code for compliance review before production — legal/compliance must set the real retention period and sign off (03 §9.1). |
-| O-3 | **`NSA_GFE_DISCLAIMER` (05)** must carry a "needs legal sign-off before any real patient sees it" comment — enforce when 05 is built. |
+| O-1 | **Schedule the card-image retention purge.** `scripts/purge_expired_card_images.py` + `app.card_retention.purge_expired_images()` delete confirmed-scan images past `image_retain_until` and rejected-scan images (retention 0), stamping `card_scans.image_purged_at`. The job is **built, tested (`tests/card_scan_purge_test.py`), and idempotent** — it is **run manually**, which is fine for the demo/pilot phase (synthetic data only). Before any real PHI: it needs a real recurring trigger (cron / worker / scheduled Supabase Edge Function). Wiring it is a small engineering task, but **which mechanism and how often** depends on the same compliance retention review as O-2 — so it is deliberately parked on [`BEFORE-PHI.md`](BEFORE-PHI.md) (item C-2), not scheduled speculatively now. There is no scheduler in the codebase yet (Phase 1–3 are all request/event-driven). |
+| O-2 | **`ocr.CONFIRM_IMAGE_RETENTION_DAYS = 90` is provisional.** Flagged in-code for compliance review before production — legal/compliance must set the real retention period and sign off (03 §9.1). [`BEFORE-PHI.md`](BEFORE-PHI.md) C-1. |
+| O-3 | **`NSA_GFE_DISCLAIMER` (05)** must carry a "needs legal sign-off before any real patient sees it" comment — enforce when 05 is built. [`BEFORE-PHI.md`](BEFORE-PHI.md) C-3. |
 
 See each agent doc for the full data model, contract, and test plan.
