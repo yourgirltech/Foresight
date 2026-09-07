@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     anthropic_api_key: str = ""
     reasoning_model: str = "claude-opus-5"
 
+    # 03-ocr-agent calls Claude's vision capability (same ANTHROPIC_API_KEY).
+    # Absent -> POST /api/card-scans records the scan with status 'error' and
+    # surfaces it; nothing 5xxs and no field is ever guessed.
+    ocr_model: str = "claude-opus-5"
+    # Confidence floor below which a field forces needs_review. One of
+    # high | medium | low — see app/agents/ocr.classify_extraction.
+    ocr_confidence_floor: str = "medium"
+
     frontend_origin: str = "http://localhost:5173"
 
     # Supabase access tokens are minted with this audience.

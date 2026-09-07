@@ -9,8 +9,14 @@ httpx>=0.28
 pyjwt[crypto]>=2.10
 cryptography>=44
 
-# 07-reasoning-agent -> Claude API
+# 07-reasoning-agent + 03-ocr-agent -> Claude API
 anthropic>=0.69
+
+# 03-ocr-agent: multipart upload of the card image (FastAPI UploadFile needs
+# python-multipart) + Pillow to validate / normalise the image before the
+# vision call.
+python-multipart>=0.0.9
+pillow>=11
 
 # Test suite (tests/) — runnable as plain scripts or under pytest
 pytest>=8

@@ -32,6 +32,31 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
 }
 
 /**
+ * Upload multipart/form-data to the backend with the current access token.
+ * Content-Type is left unset so the browser adds the multipart boundary.
+ */
+export async function apiUpload<T>(path: string, form: FormData): Promise<T> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  if (!session) {
+    throw new Error("not authenticated");
+  }
+
+  const resp = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${session.access_token}` },
+    body: form,
+  });
+
+  if (!resp.ok) {
+    const body = await resp.text();
+    throw new Error(`${resp.status} ${resp.statusText}: ${body}`);
+  }
+  return (await resp.json()) as T;
+}
+
+/**
  * Call a PUBLIC backend endpoint — no auth token. Used by the marketing site
  * (e.g. the Book a Demo form) which has no session.
  */
