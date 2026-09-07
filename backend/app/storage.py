@@ -61,12 +61,15 @@ async def create_signed_url(
 
 
 async def delete_object(bucket: str, path: str) -> None:
-    """Remove the object. Missing object is not an error (idempotent cleanup)."""
+    """Remove the object. Deleting is idempotent: an already-gone object is not
+    an error. Supabase Storage answers a missing object with 400 ("Object not
+    found") rather than 404, so both are treated as success."""
     async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.request(
             "DELETE",
             f"{_storage_base()}/object/{bucket}/{path}",
             headers=_headers(),
         )
-        if resp.status_code not in (200, 404):
-            resp.raise_for_status()
+        if resp.status_code in (200, 204, 400, 404):
+            return
+        resp.raise_for_status()

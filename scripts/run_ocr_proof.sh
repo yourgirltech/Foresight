@@ -40,6 +40,10 @@ echo "==> End-to-end — card OCR through the real endpoints"
 "$PY" tests/e2e_card_scan_test.py
 
 echo
+echo "==> Card-image retention purge (image_retain_until -> deleted, text kept)"
+"$PY" tests/card_scan_purge_test.py
+
+echo
 echo "==> Live vision test (skipped without --live / ANTHROPIC_API_KEY)"
 "$PY" tests/ocr_live_test.py --live
 

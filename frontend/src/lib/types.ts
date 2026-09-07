@@ -343,6 +343,7 @@ export interface CardScan {
   reviewed_at: string | null;
   applied_to_appointment: boolean;
   image_retain_until: string | null;
+  image_purged_at: string | null;
   created_at: string;
 }
 

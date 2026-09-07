@@ -158,8 +158,10 @@ export function CardScanReviewPage() {
               className="max-h-[360px] w-full rounded-lg object-contain"
             />
           ) : (
-            <div className="grid h-48 place-items-center text-sm text-slate-400">
-              image not available
+            <div className="grid h-48 place-items-center px-4 text-center text-sm text-slate-400">
+              {scan.image_purged_at
+                ? `Image deleted ${when(scan.image_purged_at)} per the retention policy. The extracted fields are kept.`
+                : "image not available"}
             </div>
           )}
         </section>

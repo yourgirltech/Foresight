@@ -89,4 +89,15 @@ UI layer** instead of in a rule table:
 3. **05 — Cost Estimate.** Depends on 04 (reads `patient_coverages` for the
    self-pay gate) — build it last.
 
+## Open items carried forward
+
+Tracked so they are not lost as later phases land. Add to this list rather than
+leaving a TODO in code.
+
+| # | Item | State | Notes |
+|---|------|-------|-------|
+| O-1 | **Schedule the card-image retention purge.** `scripts/purge_expired_card_images.py` + `app.card_retention.purge_expired_images()` delete confirmed-scan images past `image_retain_until` and rejected-scan images (retention 0), stamping `card_scans.image_purged_at`. The job is **built, tested (`tests/card_scan_purge_test.py`), and idempotent**, but it is **run manually** — nothing invokes it on a schedule. This is the codebase's first job that needs a real recurring trigger (there is no scheduler yet; Phase 1–3 are all request/event-driven). Wire it to cron / a worker / Supabase scheduled function when scheduler infra is introduced (a natural Phase 5+ "operational jobs" item). Until then: run it manually during any pilot with real PHI. |
+| O-2 | **`ocr.CONFIRM_IMAGE_RETENTION_DAYS = 90` is provisional.** Flagged in-code for compliance review before production — legal/compliance must set the real retention period and sign off (03 §9.1). |
+| O-3 | **`NSA_GFE_DISCLAIMER` (05)** must carry a "needs legal sign-off before any real patient sees it" comment — enforce when 05 is built. |
+
 See each agent doc for the full data model, contract, and test plan.
