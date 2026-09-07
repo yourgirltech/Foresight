@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Camera, Upload } from "lucide-react";
 
 import { useAuth } from "../auth/useAuth";
+import { CameraCapture } from "../components/CameraCapture";
 import { CardScanBadge } from "../components/cardScan";
 import { apiFetch, apiUpload } from "../lib/api";
 import type { CardScan, CardScanListResponse } from "../lib/types";
@@ -76,8 +77,9 @@ export function FrontDeskPage() {
   const [data, setData] = useState<CardScanListResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [cameraOpen, setCameraOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const cameraRef = useRef<HTMLInputElement>(null);
+  const navigate = useNavigate();
 
   const load = useCallback(async () => {
     try {
@@ -93,15 +95,15 @@ export function FrontDeskPage() {
   }, [load]);
 
   async function upload(file: File) {
+    setCameraOpen(false);
     setBusy(true);
     setError(null);
     try {
       const form = new FormData();
       form.append("image", file);
       const { card_scan } = await apiUpload<{ card_scan: CardScan }>("/api/card-scans", form);
-      await load();
       // jump straight to review for the just-uploaded scan
-      window.location.assign(`/app/front-desk/${card_scan.id}`);
+      navigate(`/app/front-desk/${card_scan.id}`);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -129,7 +131,7 @@ export function FrontDeskPage() {
       {/* --- Capture — camera first (front desk is usually a tablet) --- */}
       <section className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center">
         <button
-          onClick={() => cameraRef.current?.click()}
+          onClick={() => setCameraOpen(true)}
           disabled={busy}
           className="inline-flex items-center gap-2 rounded-md bg-brand-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-700 disabled:opacity-60"
         >
@@ -137,7 +139,7 @@ export function FrontDeskPage() {
           {busy ? "Reading the card…" : "Take a photo of the card"}
         </button>
         <p className="mt-3 text-xs text-slate-400">
-          Opens the camera on a phone or tablet.{" "}
+          Opens your camera.{" "}
           <button
             onClick={() => fileRef.current?.click()}
             disabled={busy}
@@ -153,18 +155,6 @@ export function FrontDeskPage() {
           extract the fields below.
         </p>
         <input
-          ref={cameraRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="hidden"
-          onChange={(e) => {
-            const f = e.target.files?.[0];
-            if (f) void upload(f);
-            e.target.value = "";
-          }}
-        />
-        <input
           ref={fileRef}
           type="file"
           accept="image/jpeg,image/png,image/webp,image/heic"
@@ -176,6 +166,17 @@ export function FrontDeskPage() {
           }}
         />
       </section>
+
+      {cameraOpen && (
+        <CameraCapture
+          onCapture={(file) => void upload(file)}
+          onClose={() => setCameraOpen(false)}
+          onPickFile={() => {
+            setCameraOpen(false);
+            fileRef.current?.click();
+          }}
+        />
+      )}
 
       {data === null && !error && <p className="text-slate-400">Loading…</p>}
 
