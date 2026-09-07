@@ -122,10 +122,11 @@ async def get_card_scan(
 ) -> dict:
     scan = await _load_visible(ctx.access_token, scan_id)
     image_url: str | None = None
-    try:
-        image_url = await create_signed_url(BUCKET, scan["image_path"])
-    except Exception:  # noqa: BLE001 — a missing image must not 500 the detail view
-        image_url = None
+    if not scan.get("image_purged_at"):
+        try:
+            image_url = await create_signed_url(BUCKET, scan["image_path"])
+        except Exception:  # noqa: BLE001 — a missing image must not 500 the detail view
+            image_url = None
 
     appointment = None
     if scan.get("appointment_id"):

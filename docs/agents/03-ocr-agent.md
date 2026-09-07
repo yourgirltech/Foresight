@@ -4,13 +4,16 @@ _Spec. Written before implementation, per the Phase 4 plan. Cross-check this
 document before any Phase 4 / agent-03 code is written._
 
 _Status: **BUILT** (2026-09-07). Companion: [`../PHASE-4.md`](../PHASE-4.md).
-Implementation: migration `supabase/migrations/20260907000001_insurance_card_ocr.sql`,
-`backend/app/agents/ocr.py`, `backend/app/storage.py`,
+Implementation: migrations `20260907000001_insurance_card_ocr.sql` +
+`20260907000002_card_scan_image_purge.sql`, `backend/app/agents/ocr.py`,
+`backend/app/storage.py`, `backend/app/card_retention.py`,
 `backend/app/routers/card_scans.py`, `scripts/seed_card_scans.py`,
+`scripts/purge_expired_card_images.py`,
 `frontend/src/pages/{FrontDeskPage,CardScanReviewPage}.tsx`. Tests:
 `tests/ocr_gate_test.py` (pure grid), `tests/ocr_live_test.py` (`--live`),
-`tests/e2e_card_scan_test.py`, plus the card-scan section of
-`tests/agent_isolation_test.py`. `bash scripts/run_ocr_proof.sh`.
+`tests/e2e_card_scan_test.py`, `tests/card_scan_purge_test.py`, plus the
+card-scan section of `tests/agent_isolation_test.py`.
+`bash scripts/run_ocr_proof.sh`.
 The 90-day post-confirm retention is `ocr.CONFIRM_IMAGE_RETENTION_DAYS` — a
 provisional demo/pilot default flagged for compliance review before production._
 
@@ -323,7 +326,10 @@ prefix.
    / trimmed to a `payers` row; no match ⇒ `payer_id` left null.
 4. **Retention** — reject deletes the Storage object immediately;
    confirm stamps `image_retain_until = now + CONFIRM_IMAGE_RETENTION_DAYS`
-   (90, **provisional — compliance review required**). The cleanup job that
-   deletes past-retention objects is not built yet (the column is ready).
+   (90, **provisional — compliance review required**). The purge job
+   (`scripts/purge_expired_card_images.py`, `app.card_retention`,
+   migration `20260907000002`, `tests/card_scan_purge_test.py`) deletes
+   past-retention objects and stamps `image_purged_at` — built + idempotent, but
+   **run manually** until there is a scheduler (PHASE-4.md open item O-1).
 5. **Floor `medium`** — `ocr_confidence_floor` default `medium`; overridable via
    `OCR_CONFIDENCE_FLOOR`.
