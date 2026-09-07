@@ -278,6 +278,12 @@ Priority order: `missing_authorization` → `missing_documentation` →
   (A1–A11, `00-commander.md` §13), the Phase 1 human-approval gate reused for
   submission, and the structurally-enforced rule that prior auth never gates
   emergency / urgent care.
+- **03 (insurance card OCR) + 04 (coordination of benefits) shipped in Phase 4** —
+  [`PHASE-4.md`](PHASE-4.md). 03 is a real Claude-vision extraction behind a
+  human-confirm gate (nothing auto-fills a record); 04 is a pure deterministic
+  NAIC rule ladder (R0-R7) that reports the primary/secondary ordering with the
+  deciding rule cited and never acts. Neither is a Commander agent. 05
+  (cost estimate) is still to come.
 - Real eligibility integration (01 simulates in Phase 2, exactly as 09/10 do).
 - Real prior-auth integration (02 simulates in Phase 3 — X12 278 / payer portal
   is later).

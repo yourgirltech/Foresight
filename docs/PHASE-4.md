@@ -1,11 +1,11 @@
 # Phase 4 — Patient-access data tools (03 OCR · 04 COB · 05 Cost Estimate)
 
-_Status: **SPEC — awaiting review.** Three agent specs:
-[`agents/03-ocr-agent.md`](agents/03-ocr-agent.md),
-[`agents/04-cob-agent.md`](agents/04-cob-agent.md),
-[`agents/05-cost-estimate-agent.md`](agents/05-cost-estimate-agent.md). No code
-yet. Approve, then build one agent at a time in the Phase 1–3 order:
-migration → agent → seed → UI → tests._
+_Status: **03 BUILT · 04 BUILT · 05 pending** (2026-09-07).
+[`agents/03-ocr-agent.md`](agents/03-ocr-agent.md) — insurance card OCR +
+retention purge. [`agents/04-cob-agent.md`](agents/04-cob-agent.md) —
+coordination of benefits, the pure R0-R7 rule ladder.
+[`agents/05-cost-estimate-agent.md`](agents/05-cost-estimate-agent.md) — next.
+Order per agent: migration → agent → seed → UI → tests._
 
 **Goal.** Close out the "before / at the point of care" stage — the three things
 a front desk needs the moment a patient is in front of them, none of which is a

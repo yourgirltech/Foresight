@@ -3,8 +3,24 @@
 _Spec. Written before implementation, per the Phase 4 plan. Cross-check this
 document before any agent-04 code is written._
 
-_Status: **SPEC — awaiting review.** Companion: [`../PHASE-4.md`](../PHASE-4.md).
-No code exists yet._
+_Status: **BUILT** (2026-09-07). Companion: [`../PHASE-4.md`](../PHASE-4.md).
+Implementation: migration `supabase/migrations/20260907000003_coordination_of_benefits.sql`,
+`backend/app/agents/cob.py` (`determine_cob()` + `cob_summary()`),
+`backend/app/routers/coverages.py`, the extended `GET /api/appointments/{id}`,
+`scripts/seed_coverages.py`, `frontend/src/components/cob.tsx` (the Insurance
+summary card on `AppointmentDetailPage`). Tests: `tests/cob_test.py` (worked
+cases + a 20,736-case pair fuzz), `tests/e2e_cob_test.py`, and the COB slice of
+`tests/agent_isolation_test.py`. `bash scripts/run_cob_proof.sh`._
+
+_As-built notes on §9: (1) soft patient key `patient_name` + `patient_dob` — no
+`patients` table; (2) COB computed for **every** `plan_kind` (`cob_summary`
+groups by it); the UI leads with medical; (3) R5 is the simplified MSP with the
+20-employee assumption flagged in the rationale; (4) Add-coverage lives only on
+the appointment detail card. One extra rule-ordering call: **R1 also skips any
+pair involving a retiree / COBRA plan** — NAIC's continuation-coverage rule
+makes the other plan primary regardless of dependent status, so that pair is
+settled by R4 (this is what §6.3's "cobra + employer_active as dependent" case
+requires)._
 
 ---
 

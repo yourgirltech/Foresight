@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { CheckHistory, EmergencyPill } from "../components/eligibility";
+import { InsuranceSummary } from "../components/cob";
 import { PriorAuthBadge } from "../components/priorAuth";
 import { apiFetch } from "../lib/api";
 import { prettyActor } from "../components/claims";
@@ -44,7 +45,7 @@ export function AppointmentDetailPage() {
   }
   if (!data) return <p className="text-slate-400">Loading…</p>;
 
-  const { appointment, payer, checks, prior_authorizations, activity_log } = data;
+  const { appointment, payer, checks, prior_authorizations, activity_log, coverages, cob } = data;
   const latest = checks[checks.length - 1] ?? null;
 
   async function recheck() {
@@ -123,6 +124,15 @@ export function AppointmentDetailPage() {
           </button>
         </div>
       </section>
+
+      <InsuranceSummary
+        patientName={appointment.patient_name}
+        patientDob={appointment.patient_dob}
+        appointmentId={appointment.id}
+        coverages={coverages}
+        cob={cob}
+        onChanged={load}
+      />
 
       <section className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between">

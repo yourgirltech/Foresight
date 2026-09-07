@@ -205,6 +205,56 @@ export interface AppointmentDetail {
   checks: EligibilityCheck[];
   prior_authorizations: PriorAuthorization[];
   activity_log: ActivityEntry[];
+  coverages: PatientCoverage[];
+  cob: Record<string, CobPlacement[]>;
+}
+
+// --- Coordination of benefits (Phase 4 / 04) --------------------------
+
+export type CoverageRelationship = "self" | "spouse" | "child" | "other";
+export type CoverageType =
+  | "employer_active"
+  | "employer_retiree"
+  | "cobra"
+  | "individual"
+  | "medicare"
+  | "medicaid"
+  | "tricare"
+  | "other";
+
+export interface PatientCoverage {
+  id: string;
+  appointment_id: string | null;
+  patient_name: string;
+  patient_dob: string | null;
+  payer_id: string | null;
+  payer_name: string;
+  member_id: string;
+  group_number: string;
+  plan_kind: string;
+  coverage_type: CoverageType;
+  relationship_to_subscriber: CoverageRelationship;
+  is_dependent: boolean;
+  subscriber_name: string;
+  subscriber_dob: string | null;
+  effective_date: string;
+  termination_date: string | null;
+  manual_order_override: number | null;
+  created_at: string;
+}
+
+export interface CobPlacement {
+  coverage_id: string;
+  order: string; // "primary" | "secondary" | "tertiary" | ...
+  rule: string; // "R0".."R7" or ""
+  rule_criterion: string;
+  rationale: string;
+}
+
+export interface CoverageListResponse {
+  patient: { name: string; dob: string | null };
+  coverages: PatientCoverage[];
+  cob: Record<string, CobPlacement[]>;
 }
 
 export interface EligibilityCheckDetail {

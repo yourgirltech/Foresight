@@ -240,6 +240,35 @@ async def main() -> int:
     chk("db.get_card_scan resolves the scan, org unchanged",
         reloaded and reloaded["organization_id"] == org_a)
 
+    # ---- Phase 4: coordination of benefits over A never sees B's coverages ----
+    from datetime import date as _date  # noqa: PLC0415
+
+    from app.agents import cob  # noqa: PLC0415
+
+    shared_patient = {"patient_name": "Isolation COB Probe", "patient_dob": "1991-02-02"}
+    cov_a = await db.insert_patient_coverage(org_a, {
+        **shared_patient, "payer_name": "A Health", "coverage_type": "employer_active",
+        "relationship_to_subscriber": "self", "is_dependent": False, "effective_date": "2020-01-01"})
+    # Clinic B: SAME patient_name + dob, a different (and would-be-primary-changing) coverage
+    svc_write("POST", "patient_coverages", {}, {
+        "organization_id": org_b, **shared_patient, "payer_name": "B Health",
+        "coverage_type": "medicaid", "relationship_to_subscriber": "self",
+        "is_dependent": False, "effective_date": "2019-01-01"})
+
+    a_rows = svc_get("patient_coverages", {
+        "organization_id": f"eq.{org_a}", "patient_name": f"eq.{shared_patient['patient_name']}",
+        "select": "*"})
+    chk("A's coverage query returns only A's row (same patient key exists in B)",
+        len(a_rows) == 1 and a_rows[0]["organization_id"] == org_a
+        and a_rows[0]["payer_name"] == "A Health", str(a_rows))
+    summary = cob.cob_summary(a_rows, today=_date(2026, 9, 7))
+    chk("cob_summary over A's rows alone -> A's single coverage is primary, B's Medicaid never seen",
+        summary.get("medical", [{}])[0].get("coverage_id") == cov_a["id"]
+        and len(summary.get("medical", [])) == 1, str(summary))
+    chk("the COB rows did not cross the tenant boundary",
+        len(svc_get("patient_coverages", {"organization_id": f"eq.{org_b}", "select": "id"})) == 1
+        and len(svc_get("patient_coverages", {"organization_id": f"eq.{org_a}", "select": "id"})) == 1)
+
     return chk.summary("agent pipeline never crosses a tenant boundary.")
 
 
