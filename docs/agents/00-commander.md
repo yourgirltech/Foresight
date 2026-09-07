@@ -28,6 +28,15 @@ fuzzed over 23,328 states in `tests/prior_auth_commander_test.py`. §13 does not
 modify R1–R20 or E1–E7 — `commander_test.py` / `eligibility_commander_test.py`
 still pass unchanged. Full detail: [`02-prior-auth-agent.md`](02-prior-auth-agent.md)._
 
+_**Phase 5 addendum (§14): SPEC — awaiting review.** The appeals trigger family
+and rule block (AP1–AP12) — `commander._decide_appeal`, a **third** disjoint
+early branch in `decide()`, after the prior-auth check and before R1. Unlike
+§12 / §13, an appeal rule **may** carry a `next_status` — but exactly one value
+(`paid`), on exactly one rule (AP9), behind the human-approval gate (§14.3).
+§14 does not modify R1–R20 / E1–E7 / A1–A11 — the three existing Commander test
+suites still pass unchanged. Full detail:
+[`11-appeals-agent.md`](11-appeals-agent.md)._
+
 ---
 
 ## 1. What the Commander is
@@ -88,10 +97,14 @@ resubmission never fires from automation — regardless of bugs elsewhere.
 | 10 | reminder-agent | executor | no | carry out an approved *payer-reminder* action (simulated send + logged record) |
 | 12 | escalation-agent | safety net | no | log full context, flag for a human, stop — for **both** errors/unrecognised states **and** approved actions that a human must perform (§6.3.1) |
 
-Numbers 02–05 and 11 are intentionally unassigned — reserved for later phases
-(prior-auth, patient comms, …). The Commander never routes to them; if a trigger
-implies one, it falls through to escalation (R20). **01 (eligibility) is assigned
-in Phase 2 — see §12**; the claims pipeline still never routes to it.
+Numbers 02–05 and 11 are intentionally unassigned in Phase 1 — reserved for
+later phases. The Phase 1 claims pipeline never routes to them; a trigger that
+implies one falls through to escalation (R20). Assigned since: **01 (eligibility)
+Phase 2 — §12**; **02 (prior auth) Phase 3 — §13**; **03/04/05 (card OCR /
+coordination of benefits / cost estimate) Phase 4 — synchronous tools, not
+Commander agents**; **11 (appeals) Phase 5 — §14** (11 was pencilled in for
+patient comms / voice; that takes a later number if it is ever built). The
+claims pipeline (R1–R20) still routes only to 06/07/08/09/10/12.
 
 ### 2.1 Two kinds of "execution"
 
@@ -182,9 +195,14 @@ terminals).
 | `rejected` | **external:** clearinghouse/payer rejected pre-adjudication | seed / later payer-sync |
 
 `denied` / `paid` / `rejected` / `escalated` / `actioned` / `manual_action_required`
-are **terminal for the Commander** — it will not drive a claim out of them
-(R1–R3). `declined` is a soft stop: no automation, but a human may re-open it
-via `claim.reanalyze`.
+are **terminal for R1–R20** — the claims pipeline will not drive a claim out of
+them (R1–R3). `declined` is a soft stop: no automation, but a human may re-open
+it via `claim.reanalyze`.
+
+**Phase 5 exception:** the appeals family (§14), dispatched *before* R1, is the
+one path that can move a claim out of `denied` — to `paid`, on a won appeal
+(AP9), and only after a human approved the submission. R1–R20 never sees an
+appeal trigger; once the claim is `paid`, R1 catches it as terminal as before.
 
 ---
 
@@ -848,3 +866,192 @@ To resolve at review: the human-approval mechanism (dedicated endpoints vs. the
 `recommendations` table); `02.submit` folded into 02 vs. a new executor number;
 whether an approved PA feeds the claims pipeline (recommend: not in Phase 3);
 `place_of_service` as text vs. enum; a new nav item vs. the Insurance stub.
+
+---
+
+## 14. Phase 5 addendum — appeals (11)
+
+_Status: **SPEC — awaiting review.** Companion doc:
+[`11-appeals-agent.md`](11-appeals-agent.md), which carries the data model, the
+drafting / resolution simulation, the orchestrator changes, the UI, and the full
+test plan. This section is **only** the Commander-facing part: the new trigger
+family and the rule block. **It does not touch R1–R20, E1–E7, or A1–A11.**_
+
+### 14.1 What changes, and what does not
+
+| | |
+|---|---|
+| `CommanderDecision` dataclass | **unchanged** — `action`, `reason_code`, `route_to`, `next_status` |
+| `route_to` value set | gains `"11-appeals"` |
+| `reason_code` closed set | gains the thirteen values in §14.5 |
+| `next_status` for an appeal rule | **`None` for every rule except AP9**, which sets `"paid"` — see §14.3 |
+| R1–R20, E1–E7, A1–A11 | untouched, not reordered, not re-conditioned |
+| `EXECUTABLE_ACTIONS` / `MANUAL_ACTIONS` / `ELIGIBILITY_TRIGGERS` / `PRIOR_AUTH_TRIGGERS` | untouched |
+
+### 14.2 Dispatch
+
+`decide()` gains a third early branch, after the prior-auth check, before R1:
+
+```python
+APPEAL_TRIGGERS = {
+    "claim_denied", "appeal_resubmitted", "appeal_drafted",
+    "appeal_submission_approved", "appeal_submission_declined",
+    "appeal_resolution_received", "appeal_error",
+}
+
+def decide(state, trigger):
+    ttype = (trigger or {}).get("type")
+    if ttype in ELIGIBILITY_TRIGGERS:
+        return _decide_eligibility(state, trigger)      # §12.6, E1-E7
+    if ttype in PRIOR_AUTH_TRIGGERS:
+        return _decide_prior_auth(state, trigger)       # §13.6, A1-A11
+    if ttype in APPEAL_TRIGGERS:
+        return _decide_appeal(state, trigger)           # §14.5, AP1-AP12
+    # ... existing R1-R20, entirely unchanged ...
+```
+
+The four rule tables are **disjoint**. A trigger belongs to exactly one family;
+`state` is claim-shaped, eligibility-shaped, prior-auth-shaped, or
+appeal-shaped. Family order among the early branches is irrelevant (disjoint
+sets); it is fixed eligibility → prior-auth → appeal for readability.
+
+### 14.3 The structural invariants
+
+Appeals is a **billing** flow — there is no care-safety (EMTALA) concern, so
+unlike §12 / §13 an appeal rule *may* transition the claim. It is held to two
+invariants instead:
+
+> **The human-approval gate.** `route_to == "11-appeals"` with
+> `reason_code == "appeal_submit"` occurs on **exactly one rule (AP6)**, which
+> requires `trigger.type == "appeal_submission_approved"` **and**
+> `appeal.status == "drafted"`. No appeal is submitted without a recorded human
+> approval. `orchestrator.handle_appeal` additionally hard-`raise`s if
+> `11.submit` is about to run and `appeal.status != "submitting"` or
+> `appeal.reviewed_by is None`.
+>
+> **The single claim transition.** `decision.next_status is not None` occurs on
+> **exactly one rule (AP9)**, and only as the exact pair
+> `(reason_code == "appeal_won_claim_reversed", next_status == "paid")`, on
+> `trigger.type == "appeal_resolution_received"` with `appeal.resolution ==
+> "approved"`. Every other appeal decision is `next_status: None` — the claim is
+> left `denied` through draft, approval, submission, and a partial / upheld
+> resolution. `orchestrator.handle_appeal` hard-`raise`s on any other
+> `next_status`.
+
+`appeals_commander_test` fuzzes both clauses over the full
+trigger × `appeal.status` × `appeal.resolution` × appeal{present,absent} space
+(`11-appeals-agent.md` §8).
+
+### 14.4 Trigger taxonomy — additions to §5
+
+| trigger `type` | emitted when | source |
+|----------------|--------------|--------|
+| `claim_denied` | a claim reached `denied` | seed (after setting the status), a later payer-sync, or `POST /api/claims/{id}/appeal` |
+| `appeal_resubmitted` | a human filed a second-level appeal | `POST /api/appeals/{id}/resubmit` |
+| `appeal_drafted` | 11 finished — `appeals.status` is now `drafted` or `insufficient_basis` | orchestrator, after `11.draft_appeal` |
+| `appeal_submission_approved` | a human approved sending the drafted letter | `POST /api/appeals/{id}/approve-submission` |
+| `appeal_submission_declined` | a human declined sending it | `POST /api/appeals/{id}/decline-submission` |
+| `appeal_resolution_received` | `11.submit` produced a deterministic resolution | orchestrator, after `11.submit` |
+| `appeal_error` | `11.draft_appeal` raised `AppealsUnavailable` (model unreachable) | orchestrator's try/except |
+
+### 14.5 The rule block (AP1–AP12)
+
+Evaluated top to bottom, first match wins — same discipline as §6 / §12.6 /
+§13.6. `next_status` is `None` in every row **except AP9**. `ap` =
+`state["appeal"]` (the latest `appeals` row for the claim, or `None`);
+`ap.resolution` = `ap["resolution_payload"].get("outcome")`. A `status` is
+*terminal* if it is one of
+`{insufficient_basis, submission_declined, appeal_approved, appeal_partial, appeal_denied, error}`.
+
+| # | Condition | action | route_to | reason_code | next_status |
+|---|-----------|--------|----------|-------------|-------------|
+| **AP1** | `trigger.type == "claim_denied"` **and** `ap is not None` **and** `ap.status` is not terminal | `no_action` | — | `appeal_already_in_progress` | `None` |
+| **AP2** | `trigger.type in {"claim_denied", "appeal_resubmitted"}` | `route` | `11-appeals` | `appeal_draft` | `None` |
+| **AP3** | `trigger.type == "appeal_drafted"` **and** `ap.status == "insufficient_basis"` | `route` | `12-escalation` | `appeal_no_basis_needs_human` | `None` |
+| **AP4** | `trigger.type == "appeal_drafted"` **and** `ap.status == "drafted"` | `await_human` | — | `appeal_awaiting_submission_approval` | `None` |
+| **AP5** | `trigger.type == "appeal_drafted"` | `route` | `12-escalation` | `appeal_draft_unrecognized` | `None` |
+| **AP6** | `trigger.type == "appeal_submission_approved"` **and** `ap.status == "drafted"` | `route` | `11-appeals` | `appeal_submit` | `None` |
+| **AP7** | `trigger.type == "appeal_submission_approved"` | `route` | `12-escalation` | `appeal_approval_without_draft` | `None` |
+| **AP8** | `trigger.type == "appeal_submission_declined"` | `no_action` | — | `appeal_submission_declined_recorded` | `None` |
+| **AP9** | `trigger.type == "appeal_resolution_received"` **and** `ap.resolution == "approved"` | `no_action` | — | `appeal_won_claim_reversed` | `paid` |
+| **AP10** | `trigger.type == "appeal_resolution_received"` **and** `ap.resolution in {"partial","denied"}` | `route` | `12-escalation` | `appeal_exhausted_needs_human` | `None` |
+| **AP11** | `trigger.type == "appeal_error"` | `route` | `12-escalation` | `appeal_agent_error` | `None` |
+| **AP12** | any appeal trigger, nothing above matched | `route` | `12-escalation` | `appeal_unrecognized_state` | `None` |
+
+Notes (full rationale in `11-appeals-agent.md` §2, §6):
+
+- **AP1 before AP2** — re-entrancy guard. A `claim_denied` while an appeal is
+  already live (`pending` / `drafted` / `submitting` / `submitted`) is a no-op.
+  `appeal_resubmitted` deliberately skips AP1 — a second-level appeal *wants* a
+  fresh draft, and the resubmit endpoint has already appended the new `pending`
+  row.
+- **AP3** — no citable grounds. `11.appeal_basis()` (pure) found nothing real to
+  cite, so the model was never called and no letter exists. A denial is always
+  money at risk, so this routes to a human (write off, or appeal manually) —
+  the same shape as A10 / R10. Not a silent drop.
+- **AP4** — the letter is drafted and grounded; park for a human, who approves
+  or declines the *send*. Foresight never auto-submits an appeal (mirror of R14
+  / A5).
+- **AP6** — the **only** rule that routes to `11.submit`, behind two guards (the
+  approval trigger, `ap.status == "drafted"`). The structural analogue of R9
+  behind R7/R8 and of A7 behind its guards.
+- **AP7** — an `appeal_submission_approved` for an appeal that is *not* `drafted`
+  (spoofed, or a double-click race). Escalates; never submits (mirror of R7).
+- **AP9** — the **only** rule with a non-`None` `next_status`. A won appeal
+  reverses the claim: `denied → paid`, simulated. The `appeals` row and the
+  `appeal_won_claim_reversed` activity row record that it was won on appeal.
+- **AP10** — a partial or upheld resolution. The automated path is exhausted;
+  a human owns the next move (accept the partial, second-level appeal, external
+  review, write off). The claim stays `denied`; 12 only logs. Mirror of A10.
+- **AP11** — the drafting model was unreachable. Recorded `error`, escalated —
+  a hollow appeal is worse than none (mirror of R5 for 07's `agent.error`).
+- **AP12** — malformed appeal state (mirror of R20 / E7 / A11).
+
+### 14.6 Worked traces
+
+| # | trigger | ap.status / resolution | matches | outcome |
+|---|---------|------------------------|---------|---------|
+| AP-1 | `claim_denied`, no existing appeal | — | AP2 | route → 11 (draft) |
+| AP-2 | `claim_denied`, appeal already `drafted` | `drafted` | AP1 | `no_action` |
+| AP-3 | `appeal_drafted` | `drafted` | AP4 | `await_human` — on the approval queue |
+| AP-4 | `appeal_drafted` | `insufficient_basis` | AP3 | route → 12 (`appeal_no_basis_needs_human`) |
+| AP-5 | `appeal_submission_approved` | `drafted` | AP6 | route → 11 (submit) |
+| AP-6 | `appeal_submission_approved` | `submitted` (double click) | AP7 | route → 12, never submits |
+| AP-7 | `appeal_submission_declined` | `drafted` | AP8 | `no_action`, recorded |
+| AP-8 | `appeal_resolution_received` | resolution `approved` | AP9 | `no_action`, **next_status `paid`** — claim reversed |
+| AP-9 | `appeal_resolution_received` | resolution `partial` | AP10 | route → 12 (`appeal_exhausted_needs_human`); claim stays `denied` |
+| AP-10 | `appeal_resolution_received` | resolution `denied` | AP10 | route → 12; claim stays `denied` |
+| AP-11 | `appeal_error` | `error` | AP11 | route → 12 (`appeal_agent_error`) |
+| AP-12 | `appeal_resolution_received`, no appeal row | — | AP12 | route → 12 (`appeal_unrecognized_state`) |
+| AP-13 | `appeal_resubmitted` (fresh `pending` row) | `pending` | AP2 | route → 11 (draft) — AP1 skipped |
+
+### 14.7 Test plan (Commander-facing slice — full plan in `11-appeals-agent.md` §8)
+
+`tests/appeals_commander_test.py`, stdlib only, no stack:
+
+- one case per AP1–AP12;
+- a re-run of representative R-rule / E-rule / A-rule cases to prove
+  R1–R20 / E1–E7 / A1–A11 are unchanged;
+- **the appeal-invariant fuzz**: over
+  `trigger × ap.status × ap.resolution × appeal{present,absent}`, assert
+  determinism, and on every result —
+  `route_to == "11-appeals"` with `reason_code == "appeal_submit"` ⟹
+  `trigger.type == "appeal_submission_approved"` **and** `ap.status == "drafted"`;
+  and `next_status is not None` ⟹
+  `(reason_code, next_status, trigger.type, ap.resolution) ==
+  ("appeal_won_claim_reversed", "paid", "appeal_resolution_received", "approved")`;
+  and `next_status in {None, "paid"}`;
+- named `test_appeal_never_submits_without_a_recorded_approval`,
+  `test_appeal_touches_claims_status_only_on_a_win`.
+
+### 14.8 Decisions — see `11-appeals-agent.md` §9
+
+To resolve at review: the AP block as a disjoint family vs. extending R1–R20
+(recommend disjoint); `insufficient_basis` → 12 vs. a soft record (recommend
+12); won-appeal status `paid` vs. a new `appeal_won` enum value (recommend
+`paid`); its own `appeals` table (recommend yes — same shape as
+`eligibility_checks` / `prior_authorizations`); auto-draft on every denial vs.
+on request (recommend auto); no-key drafting → `error` + escalate vs. a
+skeleton (recommend `error`); `claim_id` linkage vs. new FK columns (recommend
+`claim_id`); the `claims.denial_reason` column; assigning agent number 11 to
+appeals.
