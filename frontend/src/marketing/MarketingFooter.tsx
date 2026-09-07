@@ -31,33 +31,35 @@ const COLUMNS: { title: string; links: { label: string; to: string }[] }[] = [
 export function MarketingFooter() {
   return (
     <footer className="border-t border-border bg-surface">
-      <div className="mx-auto grid w-full max-w-6xl grid-cols-2 gap-x-8 gap-y-10 px-6 py-16 sm:px-8 sm:grid-cols-3 lg:grid-cols-4 lg:px-10 lg:py-20">
-        <div className="col-span-2 sm:col-span-3 lg:col-span-1">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-6 py-16 sm:px-8 lg:flex-row lg:justify-between lg:gap-20 lg:px-10 lg:py-20">
+        <div className="max-w-xs">
           <Logo withSubtitle />
-          <p className="mt-4 max-w-xs text-sm leading-[1.6] text-text-secondary">
+          <p className="mt-4 text-sm leading-[1.6] text-text-secondary">
             AI for patient access and the healthcare revenue cycle — with humans in control of
             what matters.
           </p>
         </div>
-        {COLUMNS.map((col) => (
-          <div key={col.title}>
-            <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
-              {col.title}
-            </p>
-            <ul className="mt-3 space-y-2">
-              {col.links.map((l) => (
-                <li key={l.label}>
-                  <Link
-                    to={l.to}
-                    className="text-sm text-text-secondary hover:text-text-primary"
-                  >
-                    {l.label}
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ))}
+        <div className="grid grid-cols-2 gap-x-10 gap-y-12 sm:grid-cols-3 sm:gap-x-12">
+          {COLUMNS.map((col) => (
+            <div key={col.title}>
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted">
+                {col.title}
+              </p>
+              <ul className="mt-3 space-y-2">
+                {col.links.map((l) => (
+                  <li key={l.label}>
+                    <Link
+                      to={l.to}
+                      className="text-sm text-text-secondary hover:text-text-primary"
+                    >
+                      {l.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="border-t border-border">
         <div className="mx-auto flex w-full max-w-6xl flex-col gap-1 px-6 py-6 text-xs text-text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8 lg:px-10">
