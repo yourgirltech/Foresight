@@ -9,8 +9,9 @@ is never touched — only the picture goes.
 Unlike `app.agents.db`, this is a **cross-tenant maintenance sweep**: it
 deliberately scans every org's expired rows in one pass. It is a batch job, not
 a request path — nothing here runs while serving a user. It is safe to run
-repeatedly (idempotent) and safe to run by hand; wiring it to a scheduler is a
-separate, still-open task (docs/PHASE-4.md).
+repeatedly (idempotent) and safe to run by hand; wiring it to a scheduler — and
+deciding how often — is a separate, still-open task gated on the compliance
+retention review (docs/PHASE-4.md O-1, docs/BEFORE-PHI.md C-2).
 """
 from __future__ import annotations
 
