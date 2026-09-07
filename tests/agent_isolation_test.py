@@ -193,6 +193,53 @@ async def main() -> int:
         and svc_get("activity_log", {"organization_id": f"eq.{org_b}", "prior_authorization_id": "not.is.null",
                                      "select": "id"}) == [])
 
+    # ---- Phase 4: an insurance card scan + confirm over A never touches B ----
+    from app.agents import ocr  # noqa: PLC0415
+
+    cs_before_b = len(svc_get("card_scans", {"organization_id": f"eq.{org_b}", "select": "id"}))
+    appt_cs_a = svc_write("POST", "appointments", {}, {
+        "organization_id": org_a, "patient_name": "Isolation CardScan Probe",
+        "patient_member_id": "", "payer_id": payer_a["id"],
+        "scheduled_at": "2026-12-01T00:00:00Z", "is_emergency": False,
+    })[0]
+    import uuid as _uuid  # noqa: PLC0415
+    scan_id = str(_uuid.uuid4())
+    scan_a = await db.insert_card_scan(org_a, {
+        "id": scan_id, "appointment_id": appt_cs_a["id"],
+        "patient_name": "Isolation CardScan Probe",
+        "image_path": f"{org_a}/{scan_id}.png", "image_mime": "image/png", "status": "pending",
+    })
+    ext = ocr.CardExtraction(
+        fields={"member_id": "NWH-ISO-0001", "group_number": "GRP-ISO", "payer_name": payer_a["name"],
+                "plan_type": "PPO"},
+        confidence={f: {"confidence": "high", "legible": True, "absent": False} for f in ocr.FIELDS},
+    )
+    new_status = ocr.classify_extraction(ext, floor="medium")
+    await db.update_card_scan(org_a, scan_id, {
+        "status": new_status, "extracted_fields": ext.fields, "field_confidence": ext.confidence})
+    # mirror the confirm write-back
+    await db.update_appointment(org_a, appt_cs_a["id"], {"patient_member_id": "NWH-ISO-0001"})
+    await db.update_card_scan(org_a, scan_id, {
+        "status": "confirmed", "reviewed_by": None, "applied_to_appointment": True})
+    await db.insert_activity(org_a, None, actor="human:seed", action="card_scan_confirmed",
+                             appointment_id=appt_cs_a["id"], details={"card_scan_id": scan_id})
+
+    a_scan = svc_get("card_scans", {"id": f"eq.{scan_id}", "select": "*"})[0]
+    chk("A's card scan resolved, carries organization_id == A, image path under A's org prefix",
+        a_scan["organization_id"] == org_a and a_scan["status"] == "confirmed"
+        and a_scan["image_path"].startswith(f"{org_a}/"), str(a_scan))
+    appt_cs_now = svc_get("appointments", {"id": f"eq.{appt_cs_a['id']}", "select": "patient_member_id"})[0]
+    chk("A's confirm wrote the member id back to A's appointment only",
+        appt_cs_now["patient_member_id"] == "NWH-ISO-0001", str(appt_cs_now))
+    chk("the card-scan run added no card_scans rows to tenant B",
+        len(svc_get("card_scans", {"organization_id": f"eq.{org_b}", "select": "id"})) == cs_before_b)
+    chk("no card_scan activity leaked to tenant B",
+        svc_get("activity_log", {"organization_id": f"eq.{org_b}", "action": "like.card_scan_*",
+                                 "select": "id"}) == [])
+    reloaded = await db.get_card_scan(scan_id)
+    chk("db.get_card_scan resolves the scan, org unchanged",
+        reloaded and reloaded["organization_id"] == org_a)
+
     return chk.summary("agent pipeline never crosses a tenant boundary.")
 
 

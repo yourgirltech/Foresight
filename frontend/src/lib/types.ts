@@ -310,6 +310,62 @@ export interface DashboardData {
   };
 }
 
+// --- Insurance card OCR (Phase 4 / 03) ---------------------------------
+
+export type CardScanStatus =
+  | "pending"
+  | "extracted"
+  | "needs_review"
+  | "confirmed"
+  | "rejected"
+  | "error";
+
+export type CardField = "member_id" | "group_number" | "payer_name" | "plan_type";
+export type FieldConfidence = "high" | "medium" | "low";
+
+export interface CardFieldMeta {
+  confidence: FieldConfidence;
+  legible: boolean;
+  absent: boolean;
+}
+
+export interface CardScan {
+  id: string;
+  appointment_id: string | null;
+  patient_name: string;
+  image_path: string;
+  image_mime: string;
+  extracted_fields: Partial<Record<CardField, string | null>> & { error?: string };
+  field_confidence: Partial<Record<CardField, CardFieldMeta>>;
+  status: CardScanStatus;
+  model: string | null;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  applied_to_appointment: boolean;
+  image_retain_until: string | null;
+  created_at: string;
+}
+
+export interface CardScanListResponse {
+  organization_id: string;
+  card_scans: CardScan[];
+  needs_review: CardScan[];
+}
+
+export interface CardScanDetail {
+  card_scan: CardScan;
+  image_url: string | null;
+  appointment: Appointment | null;
+}
+
+export interface CardScanConfirmResult {
+  card_scan: CardScan;
+  applied_to_appointment: boolean;
+  appointment_id: string | null;
+  matched_payer_id: string | null;
+  image_retain_until: string | null;
+}
+
 export type InvitationStatus = "pending" | "accepted" | "revoked";
 
 export interface Invitation {

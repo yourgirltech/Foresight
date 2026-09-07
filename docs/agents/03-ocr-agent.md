@@ -3,8 +3,16 @@
 _Spec. Written before implementation, per the Phase 4 plan. Cross-check this
 document before any Phase 4 / agent-03 code is written._
 
-_Status: **SPEC — awaiting review.** Companion: [`../PHASE-4.md`](../PHASE-4.md).
-No code exists yet._
+_Status: **BUILT** (2026-09-07). Companion: [`../PHASE-4.md`](../PHASE-4.md).
+Implementation: migration `supabase/migrations/20260907000001_insurance_card_ocr.sql`,
+`backend/app/agents/ocr.py`, `backend/app/storage.py`,
+`backend/app/routers/card_scans.py`, `scripts/seed_card_scans.py`,
+`frontend/src/pages/{FrontDeskPage,CardScanReviewPage}.tsx`. Tests:
+`tests/ocr_gate_test.py` (pure grid), `tests/ocr_live_test.py` (`--live`),
+`tests/e2e_card_scan_test.py`, plus the card-scan section of
+`tests/agent_isolation_test.py`. `bash scripts/run_ocr_proof.sh`.
+The 90-day post-confirm retention is `ocr.CONFIRM_IMAGE_RETENTION_DAYS` — a
+provisional demo/pilot default flagged for compliance review before production._
 
 ---
 
@@ -302,3 +310,20 @@ prefix.
    minimise retention). Flag for a retention-policy decision.
 5. **`ocr_confidence_floor` default** — `medium` proposed. Tune against the live
    fixtures at review.
+
+### 9.1 As built (2026-09-07)
+
+1. **Front Desk** — the `front-desk` route is now `FrontDeskPage` (list +
+   capture) + `front-desk/:id` `CardScanReviewPage`. No new nav item.
+2. **Structured outputs** — `extract()` calls with
+   `output_config={"format": {"type": "json_schema", "schema": ...}}` and falls
+   back to a plain call + `_extract_json` on `TypeError` / `BadRequestError`.
+   Verified live against `claude-opus-5`.
+3. **Exact payer match only** — confirm matches `payer_name` case-insensitively
+   / trimmed to a `payers` row; no match ⇒ `payer_id` left null.
+4. **Retention** — reject deletes the Storage object immediately;
+   confirm stamps `image_retain_until = now + CONFIRM_IMAGE_RETENTION_DAYS`
+   (90, **provisional — compliance review required**). The cleanup job that
+   deletes past-retention objects is not built yet (the column is ready).
+5. **Floor `medium`** — `ocr_confidence_floor` default `medium`; overridable via
+   `OCR_CONFIDENCE_FLOOR`.

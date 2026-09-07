@@ -11,9 +11,11 @@ import { SolutionsPage } from "./marketing/pages/SolutionsPage";
 import { AcceptInvitePage } from "./pages/AcceptInvitePage";
 import { AppointmentDetailPage } from "./pages/AppointmentDetailPage";
 import { AppointmentsPage } from "./pages/AppointmentsPage";
+import { CardScanReviewPage } from "./pages/CardScanReviewPage";
 import { ClaimDetailPage } from "./pages/ClaimDetailPage";
 import { ClaimsPage } from "./pages/ClaimsPage";
 import { DashboardPage } from "./pages/DashboardPage";
+import { FrontDeskPage } from "./pages/FrontDeskPage";
 import { EligibilityCheckDetailPage } from "./pages/EligibilityCheckDetailPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
@@ -75,15 +77,8 @@ export default function App() {
             />
           }
         />
-        <Route
-          path="front-desk"
-          element={
-            <StubPage
-              title="Front Desk"
-              blurb="Check-in queue, intake forms, and the day's schedule at a glance."
-            />
-          }
-        />
+        <Route path="front-desk" element={<FrontDeskPage />} />
+        <Route path="front-desk/:id" element={<CardScanReviewPage />} />
         <Route
           path="tasks"
           element={

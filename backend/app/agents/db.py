@@ -375,3 +375,37 @@ async def update_prior_authorization(org_id: str, pa_id: str, fields: dict) -> d
         fields,
     )
     return rows[0] if rows else None
+
+
+async def update_appointment(org_id: str, appt_id: str, fields: dict) -> dict | None:
+    rows = await _write(
+        "PATCH",
+        "/appointments",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{appt_id}"},
+        fields,
+    )
+    return rows[0] if rows else None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — insurance card OCR (03). Sidecar table; NOT a Commander agent.
+# All writes scoped by org_id, resolved from the verified session.
+# --------------------------------------------------------------------------- #
+async def get_card_scan(scan_id: str) -> dict | None:
+    rows = await _get("/card_scans", {"id": f"eq.{scan_id}", "select": "*", "limit": 1})
+    return rows[0] if rows else None
+
+
+async def insert_card_scan(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/card_scans", {}, {**fields, "organization_id": org_id})
+    return rows[0]
+
+
+async def update_card_scan(org_id: str, scan_id: str, fields: dict) -> dict | None:
+    rows = await _write(
+        "PATCH",
+        "/card_scans",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{scan_id}"},
+        fields,
+    )
+    return rows[0] if rows else None
