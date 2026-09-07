@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
-import { ArrowRight, ChevronDown } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 
-import { useAuth } from "../auth/useAuth";
-import { Logo, btnDark, btnOutline } from "./components";
+import { Logo, btnOutline } from "./components";
 
 interface DropItem {
   label: string;
@@ -91,8 +90,6 @@ const quietLink = ({ isActive }: { isActive: boolean }) =>
   }`;
 
 export function MarketingHeader() {
-  const { status } = useAuth();
-  const authed = status === "ready";
   const [scrolled, setScrolled] = useState(false);
 
   useEffect(() => {
@@ -129,24 +126,15 @@ export function MarketingHeader() {
         </nav>
 
         <div className="ml-auto flex shrink-0 items-center gap-4 lg:ml-0">
-          {authed ? (
-            <Link to="/app" className={`${btnDark} whitespace-nowrap`}>
-              Go to Dashboard
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          ) : (
-            <>
-              <Link
-                to="/login"
-                className="whitespace-nowrap text-[15px] font-medium text-text-secondary transition-colors hover:text-text-primary"
-              >
-                Log in
-              </Link>
-              <Link to="/signup" className={`${btnOutline} whitespace-nowrap`}>
-                Sign up
-              </Link>
-            </>
-          )}
+          <Link
+            to="/login"
+            className="whitespace-nowrap text-[15px] font-medium text-text-secondary transition-colors hover:text-text-primary"
+          >
+            Log in
+          </Link>
+          <Link to="/signup" className={`${btnOutline} whitespace-nowrap`}>
+            Sign up
+          </Link>
         </div>
       </div>
     </header>
