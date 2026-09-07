@@ -3,6 +3,7 @@ import { Link, useParams } from "react-router-dom";
 
 import { CheckHistory, EmergencyPill } from "../components/eligibility";
 import { InsuranceSummary } from "../components/cob";
+import { CostEstimateSection } from "../components/costEstimate";
 import { PriorAuthBadge } from "../components/priorAuth";
 import { apiFetch } from "../lib/api";
 import { prettyActor } from "../components/claims";
@@ -133,6 +134,8 @@ export function AppointmentDetailPage() {
         cob={cob}
         onChanged={load}
       />
+
+      <CostEstimateSection appointmentId={appointment.id} coverages={coverages} />
 
       <section className="rounded-xl border border-slate-200 bg-white p-5">
         <div className="flex items-center justify-between">

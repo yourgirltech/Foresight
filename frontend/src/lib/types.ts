@@ -257,6 +257,49 @@ export interface CoverageListResponse {
   cob: Record<string, CobPlacement[]>;
 }
 
+// --- Cost estimate / Good Faith Estimate (Phase 4 / 05) --------------
+
+export interface ProcedurePrice {
+  id: string;
+  procedure_code: string;
+  description: string;
+  base_price: string | number;
+  active: boolean;
+}
+
+export interface EstimateLine {
+  procedure_code: string;
+  description: string;
+  base_price: number;
+}
+
+export interface CostEstimate {
+  id: string;
+  appointment_id: string | null;
+  patient_name: string;
+  patient_dob: string | null;
+  line_items: EstimateLine[];
+  subtotal: string | number;
+  currency: string;
+  patient_summary: string;
+  disclaimer_text: string;
+  disclaimer_version: string;
+  self_pay_confirmed: boolean;
+  model: string | null;
+  created_at: string;
+}
+
+export interface CostEstimateResult {
+  cost_estimate: CostEstimate;
+  unpriced_codes: string[];
+}
+
+export interface CostEstimateDetail {
+  cost_estimate: CostEstimate;
+  appointment: Appointment | null;
+  clinic_name: string | null;
+}
+
 export interface EligibilityCheckDetail {
   check: EligibilityCheck;
   chain: EligibilityCheck[];

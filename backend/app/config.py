@@ -34,6 +34,11 @@ class Settings(BaseSettings):
     # high | medium | low — see app/agents/ocr.classify_extraction.
     ocr_confidence_floor: str = "medium"
 
+    # 05-cost-estimate-agent: the AI only PHRASES an already-computed Good Faith
+    # Estimate (it never touches a number). Absent / API error -> the estimate is
+    # still produced with a deterministic plain-language template.
+    cost_estimate_model: str = "claude-opus-5"
+
     frontend_origin: str = "http://localhost:5173"
 
     # Supabase access tokens are minted with this audience.

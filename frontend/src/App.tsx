@@ -14,6 +14,7 @@ import { AppointmentsPage } from "./pages/AppointmentsPage";
 import { CardScanReviewPage } from "./pages/CardScanReviewPage";
 import { ClaimDetailPage } from "./pages/ClaimDetailPage";
 import { ClaimsPage } from "./pages/ClaimsPage";
+import { CostEstimatePage } from "./pages/CostEstimatePage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { FrontDeskPage } from "./pages/FrontDeskPage";
 import { EligibilityCheckDetailPage } from "./pages/EligibilityCheckDetailPage";
@@ -79,6 +80,7 @@ export default function App() {
         />
         <Route path="front-desk" element={<FrontDeskPage />} />
         <Route path="front-desk/:id" element={<CardScanReviewPage />} />
+        <Route path="cost-estimates/:id" element={<CostEstimatePage />} />
         <Route
           path="tasks"
           element={
