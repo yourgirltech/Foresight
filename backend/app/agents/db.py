@@ -409,3 +409,37 @@ async def update_card_scan(org_id: str, scan_id: str, fields: dict) -> dict | No
         fields,
     )
     return rows[0] if rows else None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 4 — coordination of benefits (04). Plain data table; NOT a Commander
+# agent. determine_cob() reads and computes; it never writes. All writes scoped
+# by org_id, resolved from the verified session.
+# --------------------------------------------------------------------------- #
+async def get_patient_coverage(coverage_id: str) -> dict | None:
+    rows = await _get("/patient_coverages", {"id": f"eq.{coverage_id}", "select": "*", "limit": 1})
+    return rows[0] if rows else None
+
+
+async def insert_patient_coverage(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/patient_coverages", {}, {**fields, "organization_id": org_id})
+    return rows[0]
+
+
+async def update_patient_coverage(org_id: str, coverage_id: str, fields: dict) -> dict | None:
+    rows = await _write(
+        "PATCH",
+        "/patient_coverages",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{coverage_id}"},
+        fields,
+    )
+    return rows[0] if rows else None
+
+
+async def delete_patient_coverage(org_id: str, coverage_id: str) -> None:
+    await _write(
+        "DELETE",
+        "/patient_coverages",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{coverage_id}"},
+        None,
+    )

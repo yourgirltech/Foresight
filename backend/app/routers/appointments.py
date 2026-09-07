@@ -13,12 +13,12 @@ unconditionally, then the check is kicked off.
 """
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
-from ..agents import db, orchestrator
+from ..agents import cob, db, orchestrator
 from ..auth import AuthContext, require_organization
 from ..supabase_rest import rest_get
 
@@ -89,8 +89,25 @@ async def get_appointment(appointment_id: str, ctx: AuthContext = Depends(requir
         {"appointment_id": f"eq.{appointment_id}", "select": "actor,action,details,created_at",
          "order": "created_at"},
     )
+
+    # Phase 4: the insurance summary — this patient's coverages + COB ordering.
+    # Match by the soft patient key (name + dob), like the rest of the codebase.
+    cov_params = {"select": "*", "patient_name": f"eq.{appt['patient_name']}",
+                  "order": "plan_kind,effective_date"}
+    if appt.get("patient_dob"):
+        cov_params["patient_dob"] = f"eq.{appt['patient_dob']}"
+    coverages = await rest_get(ctx.access_token, "/patient_coverages", cov_params)
+    dob = None
+    if appt.get("patient_dob"):
+        try:
+            dob = date.fromisoformat(str(appt["patient_dob"])[:10])
+        except ValueError:
+            dob = None
+    cob_summary = cob.cob_summary(coverages, today=datetime.now(timezone.utc).date(), patient_dob=dob)
+
     return {"appointment": appt, "payer": payer, "checks": checks,
-            "prior_authorizations": prior_authorizations, "activity_log": activity}
+            "prior_authorizations": prior_authorizations, "activity_log": activity,
+            "coverages": coverages, "cob": cob_summary}
 
 
 @router.get("/api/eligibility-checks/{check_id}")
