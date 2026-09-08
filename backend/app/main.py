@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from .config import get_settings
 from .routers import (
+    appeals,
     appointments,
     card_scans,
     claims,
@@ -34,6 +35,7 @@ app.add_middleware(
 app.include_router(me.router)
 app.include_router(organizations.router)
 app.include_router(claims.router)
+app.include_router(appeals.router)
 app.include_router(appointments.router)
 app.include_router(prior_auth.router)
 app.include_router(card_scans.router)

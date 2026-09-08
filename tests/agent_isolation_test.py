@@ -64,7 +64,7 @@ async def main() -> int:
     print("Agent tenant isolation proof")
     print(f"  07 reasoning: {'key present — full pipeline' if key else 'no key — run stops at reasoning (fine for this test)'}\n")
 
-    org_a, _ = ensure_org("agttest_a@foresight.test", "Agent Test — Clinic A")
+    org_a, uid_a = ensure_org("agttest_a@foresight.test", "Agent Test — Clinic A")
     org_b, _ = ensure_org("agttest_b@foresight.test", "Agent Test — Clinic B")
     chk("two distinct clinics", org_a != org_b)
 
@@ -303,6 +303,91 @@ async def main() -> int:
         stored["organization_id"] == org_a and float(stored["subtotal"]) == 150.00, str(stored))
     chk("no cost_estimates row exists in tenant B",
         svc_get("cost_estimates", {"organization_id": f"eq.{org_b}", "select": "id"}) == [])
+
+    # ---- Phase 5: an appeal over A's denied claim never touches B ----
+    import uuid as _uuid2  # noqa: PLC0415
+
+    from app.agents.appeals import win_threshold as _win  # noqa: PLC0415
+
+    ap_before_b = len(svc_get("appeals", {"organization_id": f"eq.{org_b}", "select": "id"}))
+    den_a = svc_write("POST", "claims", {}, {
+        "organization_id": org_a, "payer_id": payer_a["id"], "claim_id": "CLM-APPEAL-ISO",
+        "patient_name": "Isolation Appeal Probe", "patient_member_id": "PROBE-AP-1", "amount": 1200.00,
+        "status": "denied", "denial_reason": "Prior authorization not on file.",
+        "authorization_present": False, "documentation_present": True, "coding_matches": False,
+    })[0]
+    # Clinic B: SAME claim_id string, a different denied claim + its own issue
+    den_b = svc_write("POST", "claims", {}, {
+        "organization_id": org_b, "payer_id": payer_b["id"], "claim_id": "CLM-APPEAL-ISO",
+        "patient_name": "Isolation Appeal Probe", "patient_member_id": "PROBE-AP-1", "amount": 9999.00,
+        "status": "denied", "denial_reason": "B-only denial reason — must never be cited for A.",
+        "authorization_present": False, "documentation_present": True, "coding_matches": False,
+    })[0]
+    svc_write("POST", "claim_issues", {}, {
+        "organization_id": org_a, "claim_id": den_a["id"], "issue_type": "missing_authorization",
+        "severity": "high", "description": "A-only: Shared-Name Payer requires auth; none recorded."})
+    svc_write("POST", "claim_issues", {}, {
+        "organization_id": org_b, "claim_id": den_b["id"], "issue_type": "code_mismatch",
+        "severity": "high", "description": "B-only issue — must never appear in A's appeal grounds."})
+
+    won = None
+    if key:
+        for _ in range(200000):
+            cand = str(_uuid2.uuid4())
+            from app.agents.appeals import resolution_bucket as _rb  # noqa: PLC0415
+            if _rb(den_a["id"], cand) < _win(2) - 3:   # 1 issue + denial reason = 2 grounds
+                won = cand
+                break
+        await db.insert_appeal(org_a, {"id": won, "claim_id": den_a["id"], "status": "pending",
+                                       "denial_reason": "Prior authorization not on file."})
+        await orchestrator.handle_appeal(den_a["id"], {"type": "appeal_resubmitted"})
+        a_appeal = svc_get("appeals", {"id": f"eq.{won}", "select": "*"})[0]
+
+    ap_drafted_ok = won is not None and a_appeal["status"] == "drafted"
+    if ap_drafted_ok:
+        chk("A's appeal drafted; grounds cite A's rows only (no B issue, no B denial reason)",
+            all("B-only" not in g["detail"] for g in a_appeal["grounds"])
+            and all("must never" not in (g["detail"] or "") for g in a_appeal["grounds"]),
+            str(a_appeal["grounds"]))
+        await db.update_appeal(org_a, won, {"reviewed_by": uid_a, "reviewed_at": NOW.isoformat()})
+        await orchestrator.handle_appeal(den_a["id"], {"type": "appeal_submission_approved"})
+        chk("A's won appeal reversed ONLY A's claim (denied -> paid); B's stays denied",
+            svc_get("claims", {"id": f"eq.{den_a['id']}", "select": "status"})[0]["status"] == "paid"
+            and svc_get("claims", {"id": f"eq.{den_b['id']}", "select": "status"})[0]["status"] == "denied")
+        a_ap_rows = svc_get("appeals", {"organization_id": f"eq.{org_a}", "select": "organization_id,claim_id"})
+        chk("every appeals row A wrote carries organization_id == A and points at A's claim",
+            len(a_ap_rows) >= 1 and all(r["organization_id"] == org_a
+                                        and r["claim_id"] == den_a["id"] for r in a_ap_rows),
+            str(a_ap_rows))
+        a_ap_acts = svc_get("activity_log", {"claim_id": f"eq.{den_a['id']}",
+                                             "select": "organization_id,action"})
+        chk("every activity row from A's appeal run carries organization_id == A",
+            len(a_ap_acts) > 0 and all(r["organization_id"] == org_a for r in a_ap_acts))
+    else:
+        # no key: the no-basis path still proves org resolution (den_a HAS an issue,
+        # so use a bare claim with none)
+        bare_a = svc_write("POST", "claims", {}, {
+            "organization_id": org_a, "payer_id": payer_a["id"], "claim_id": "CLM-APPEAL-ISO-2",
+            "patient_name": "Iso Appeal Bare", "patient_member_id": "P", "amount": 100.00,
+            "status": "denied", "authorization_present": True, "documentation_present": True,
+            "coding_matches": True})[0]
+        await orchestrator.handle_appeal(bare_a["id"], {"type": "claim_denied"})
+        a_bare_ap = svc_get("appeals", {"claim_id": f"eq.{bare_a['id']}", "select": "organization_id,status"})
+        chk("A's no-basis appeal recorded under org A only",
+            len(a_bare_ap) == 1 and a_bare_ap[0]["organization_id"] == org_a
+            and a_bare_ap[0]["status"] == "insufficient_basis", str(a_bare_ap))
+
+    chk("the appeal run added no appeals rows to tenant B",
+        len(svc_get("appeals", {"organization_id": f"eq.{org_b}", "select": "id"})) == ap_before_b)
+    chk("no appeal escalation / activity leaked to tenant B",
+        svc_get("escalations", {"organization_id": f"eq.{org_b}", "reason_code": "like.appeal_*",
+                                "select": "id"}) == []
+        and svc_get("activity_log", {"organization_id": f"eq.{org_b}", "action": "like.appeal_*",
+                                     "select": "id"}) == [])
+    reloaded_den_b = await db.get_claim(den_b["id"])
+    chk("db.get_claim(B's denied claim) still returns B's row, org unchanged",
+        reloaded_den_b and reloaded_den_b["organization_id"] == org_b
+        and reloaded_den_b["denial_reason"].startswith("B-only"))
 
     return chk.summary("agent pipeline never crosses a tenant boundary.")
 

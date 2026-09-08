@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
+import { AppealSection } from "../components/appeals";
 import {
   ApprovalBadge,
   RiskBadge,
@@ -76,7 +77,8 @@ export function ClaimDetailPage() {
   }
   if (!data) return <p className="text-slate-400">Loading…</p>;
 
-  const { claim, payer, issues, recommendation, activity_log, escalations, follow_ups } = data;
+  const { claim, payer, issues, recommendation, activity_log, escalations, follow_ups, appeals, appeal } =
+    data;
   const rec = recommendation;
   const canDecide = claim.status === "awaiting_approval" && rec?.approval_status === "pending";
   const isManualRec = rec ? MANUAL_ACTIONS.has(rec.action_type) : false;
@@ -243,6 +245,15 @@ export function ClaimDetailPage() {
           )}
         </section>
       )}
+
+      {/* --- Appeal (11) — for a denied claim --- */}
+      <AppealSection
+        claimId={claim.id}
+        claimStatus={claim.status}
+        appeal={appeal}
+        chain={appeals}
+        onChanged={load}
+      />
 
       {/* --- Manual action required banner --- */}
       {claim.status === "manual_action_required" && (

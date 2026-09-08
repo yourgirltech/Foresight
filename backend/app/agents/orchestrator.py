@@ -19,6 +19,7 @@ from datetime import datetime, timezone
 
 from ..config import get_settings
 from . import (
+    appeals,
     commander,
     db,
     eligibility,
@@ -685,3 +686,227 @@ async def handle_prior_auth(pa_id: str, trigger: dict, *, _depth: int = 0) -> Co
         return decision
 
     raise RuntimeError(f"handle_prior_auth has no dispatch for route_to={decision.route_to!r}")
+
+
+# =========================================================================== #
+# Phase 5 — appeals (11-appeals-agent)
+#
+# 11 is a Commander agent (a fourth disjoint family, AP1-AP12). There is no
+# care-safety concern here (billing, not care), so an appeal decision MAY carry
+# a next_status. The TWO STRUCTURAL INVARIANTS (00-commander.md §14.3) are
+# hard-raised below, not just documented:
+#
+#   * the ONLY route to 11.submit is AP6 (reason_code 'appeal_submit'), and it
+#     may only run when a human is recorded on the appeal (`reviewed_by`);
+#   * the ONLY non-None next_status is the exact pair
+#     ('appeal_won_claim_reversed', 'paid') — a won appeal reversing the claim.
+# =========================================================================== #
+_APPEAL_RESOLUTION_TO_STATUS = {
+    "approved": "appeal_approved",
+    "partial": "appeal_partial",
+    "denied": "appeal_denied",
+}
+
+
+async def _load_appeal_state(claim: dict) -> dict:
+    org_id = claim["organization_id"]
+    claim_pk = claim["id"]
+    payer = await db.get_payer(org_id, claim["payer_id"]) if claim.get("payer_id") else {}
+    issues = await db.list_issues(org_id, claim_pk)
+    recs = await db.list_recommendations(org_id, claim_pk)
+    fups = await db.list_follow_ups(org_id, claim_pk)
+    ap = await db.latest_appeal(org_id, claim_pk)
+    return {
+        "claim": claim,
+        "payer": payer or {},
+        "issues": issues,
+        "recommendations": recs,
+        "follow_ups": fups,
+        "appeal": ap,
+    }
+
+
+async def _run_appeal_draft(org_id: str, claim: dict, state: dict) -> dict:
+    """AP2 body. Ensure a pending appeal row exists, run the PURE appeal_basis(),
+    then — only if there are grounds — call the drafting model. Returns the
+    follow-on trigger (`appeal_drafted` or `appeal_error`)."""
+    claim_pk = claim["id"]
+    ap = state.get("appeal")
+    if ap is None or ap.get("status") != "pending":
+        ap = await db.insert_appeal(org_id, {
+            "claim_id": claim_pk, "status": "pending",
+            "denial_reason": claim.get("denial_reason"),
+        })
+    appeal_id = ap["id"]
+
+    basis = appeals.appeal_basis(
+        claim, state["issues"], state["recommendations"], state["follow_ups"],
+        claim.get("denial_reason"),
+    )
+
+    if not basis.has_basis:
+        await db.update_appeal(org_id, appeal_id, {
+            "status": "insufficient_basis",
+            "grounds": [g.as_dict() for g in basis.grounds],
+            "has_basis": False,
+            "denial_reason": claim.get("denial_reason"),
+        })
+        await db.insert_activity(
+            org_id, claim_pk, actor="11-appeals", action="insufficient_basis",
+            details={"appeal_id": appeal_id, "grounds": len(basis.grounds)},
+        )
+        return {"type": "appeal_drafted"}
+
+    try:
+        letter, model = await appeals.draft_appeal(claim, state["payer"], basis)
+    except appeals.AppealsUnavailable as exc:
+        await db.update_appeal(org_id, appeal_id, {
+            "status": "error", "letter_text": "",
+            "grounds": [g.as_dict() for g in basis.grounds],
+            "has_basis": True, "denial_reason": claim.get("denial_reason"),
+        })
+        await db.insert_activity(
+            org_id, claim_pk, actor="11-appeals", action="error",
+            details={"appeal_id": appeal_id, "error": str(exc), "error_type": type(exc).__name__},
+        )
+        return {"type": "appeal_error"}
+
+    await db.update_appeal(org_id, appeal_id, {
+        "status": "drafted",
+        "letter_text": letter,
+        "model": model,
+        "grounds": [g.as_dict() for g in basis.grounds],
+        "has_basis": True,
+        "denial_reason": claim.get("denial_reason"),
+    })
+    await db.insert_activity(
+        org_id, claim_pk, actor="11-appeals", action="drafted",
+        details={"appeal_id": appeal_id, "model": model,
+                 "grounds": [g.as_dict() for g in basis.grounds]},
+    )
+    return {"type": "appeal_drafted"}
+
+
+async def _run_appeal_submit(org_id: str, claim: dict, state: dict) -> dict:
+    """AP6 body — post-approval only. Simulated send + the DETERMINISTIC
+    resolution. Returns the `appeal_resolution_received` follow-on."""
+    claim_pk = claim["id"]
+    ap = state["appeal"]
+    appeal_id = ap["id"]
+    is_resubmit = bool(ap.get("previous_appeal_id"))
+
+    basis = appeals.appeal_basis(
+        claim, state["issues"], state["recommendations"], state["follow_ups"],
+        ap.get("denial_reason") or claim.get("denial_reason"),
+    )
+
+    now = datetime.now(timezone.utc).isoformat()
+    submission = {
+        "simulated": True,
+        "channel": "simulated",
+        "claim_id": claim.get("claim_id"),
+        "payer_name": (state["payer"] or {}).get("name"),
+        "grounds_cited": basis.distinct_grounds,
+        "is_resubmit": is_resubmit,
+        "submitted_at": now,
+    }
+    await db.update_appeal(org_id, appeal_id, {"status": "submitting", "submission_payload": submission})
+
+    resolution = appeals.simulate_resolution(claim, appeal_id, basis, is_resubmit=is_resubmit)
+    status = _APPEAL_RESOLUTION_TO_STATUS[resolution.outcome]
+    await db.update_appeal(org_id, appeal_id, {
+        "status": status,
+        "resolution_payload": {**resolution.payload, "responded_at": now},
+        "resolved_at": now,
+    })
+    await db.insert_activity(
+        org_id, claim_pk, actor="11-appeals:submit", action="resolution",
+        details={"appeal_id": appeal_id, "outcome": resolution.outcome,
+                 "bucket": resolution.bucket, "reversed_amount": resolution.reversed_amount,
+                 "is_resubmit": is_resubmit},
+    )
+    return {"type": "appeal_resolution_received"}
+
+
+async def handle_appeal(claim_id: str, trigger: dict, *, _depth: int = 0) -> CommanderDecision:
+    """Process one (denied claim, appeal trigger). The appeals analogue of
+    handle(). organization_id is resolved ONCE, from the claim row."""
+    claim = await db.get_claim(claim_id)
+    if claim is None:
+        raise ValueError(f"claim {claim_id!r} not found")
+    org_id = claim["organization_id"]
+
+    state = await _load_appeal_state(claim)
+    decision = commander.decide(state, trigger)
+    ap = state.get("appeal")
+    appeal_id = ap.get("id") if isinstance(ap, dict) else None
+
+    await db.insert_activity(
+        org_id, claim_id, actor="00-commander", action=decision.reason_code,
+        details={
+            "trigger": trigger.get("type"),
+            "action": decision.action,
+            "route_to": decision.route_to,
+            "next_status": decision.next_status,
+            "appeal_id": appeal_id,
+        },
+    )
+
+    # --- the two structural invariants: HARD enforced, not just documented -----
+    if decision.next_status is not None and not (
+        decision.reason_code == "appeal_won_claim_reversed" and decision.next_status == "paid"
+    ):
+        raise RuntimeError(
+            "appeals Commander decision carried a forbidden next_status "
+            f"({decision.next_status!r} for {decision.reason_code}) — the only "
+            "appeal transition is denied->paid on AP9 (00-commander.md §14.3)"
+        )
+    if (
+        decision.action == "route"
+        and decision.route_to == "11-appeals"
+        and decision.reason_code == "appeal_submit"
+        and not (isinstance(ap, dict) and ap.get("reviewed_by"))
+    ):
+        raise RuntimeError(
+            "appeals Commander routed to 11.submit without a recorded human "
+            f"approver on the appeal ({decision.reason_code}) — forbidden by "
+            "00-commander.md §14.3"
+        )
+
+    if decision.next_status is not None:
+        await db.update_claim(org_id, claim_id, {"status": decision.next_status})
+
+    if decision.action != "route":
+        return decision
+
+    if _depth + 1 >= MAX_INVOCATIONS:
+        await escalation.escalate(
+            org_id, claim_id, reason_code="loop_cap_exceeded",
+            context={"trigger": trigger, "depth": _depth, "appeal_id": appeal_id},
+        )
+        return CommanderDecision("route", "loop_cap_exceeded", "12-escalation", None)
+
+    if decision.route_to == "11-appeals":
+        if decision.reason_code == "appeal_submit":  # AP6 — post-approval only
+            follow_on = await _run_appeal_submit(org_id, claim, state)
+        else:  # AP2 — draft / re-draft
+            follow_on = await _run_appeal_draft(org_id, claim, state)
+        await handle_appeal(claim_id, follow_on, _depth=_depth + 1)
+        return decision
+
+    if decision.route_to == "12-escalation":  # AP3 / AP5 / AP7 / AP10 / AP11 / AP12
+        await escalation.escalate(
+            org_id, claim_id, reason_code=decision.reason_code,
+            context={
+                "trigger_reason": decision.reason_code,
+                "appeal_id": appeal_id,
+                "appeal_status": ap.get("status") if isinstance(ap, dict) else None,
+                "appeal_resolution": (ap.get("resolution_payload") or {}).get("outcome")
+                if isinstance(ap, dict) else None,
+                "claim_status": claim.get("status"),
+                "payer_id": claim.get("payer_id"),
+            },
+        )
+        return decision
+
+    raise RuntimeError(f"handle_appeal has no dispatch for route_to={decision.route_to!r}")

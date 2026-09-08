@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # still produced with a deterministic plain-language template.
     cost_estimate_model: str = "claude-opus-5"
 
+    # 11-appeals-agent: the AI DRAFTS an appeal letter grounded strictly in
+    # evidence already in the system (11-appeals-agent.md §2.1). Absent / API
+    # error -> the appeal is recorded 'error' and the Commander escalates (AP11);
+    # there is no hollow fallback template (07's discipline).
+    appeals_model: str = "claude-opus-5"
+
     frontend_origin: str = "http://localhost:5173"
 
     # Supabase access tokens are minted with this audience.

@@ -28,6 +28,17 @@ gate an elective service (correctly); it must NEVER gate emergency / urgent care
 The Commander enforces the emergency half structurally: every A-rule returns
 `next_status is None`, and no rule reachable with an emergency signal routes to
 `12-escalation` OR to `await_human` OR to a submission.
+
+Phase 5 adds a FOURTH, disjoint rule table for appeals (AP1-AP12,
+docs/agents/00-commander.md §14 and docs/agents/11-appeals-agent.md).
+`decide()` dispatches to `_decide_appeal` when the trigger is in APPEAL_TRIGGERS,
+after the prior-auth check and before R1. Appeals is a BILLING flow — no
+care-safety concern — so unlike E/A an appeal rule MAY carry a next_status, but
+the two invariants it is held to instead are structural: (1) the ONLY rule
+routing to 11.submit is AP6, gated on an `appeal_submission_approved` trigger
+plus `appeal.status == 'drafted'`; (2) the ONLY rule with a non-None next_status
+is AP9 (`denied` -> `paid`), and only on a won resolution. Both hard-raised in
+orchestrator.handle_appeal.
 """
 from __future__ import annotations
 
@@ -75,6 +86,26 @@ PRIOR_AUTH_TRIGGERS = {
     "prior_auth_response_received",
 }
 PRIOR_AUTH_NEEDS_HUMAN_RESPONSES = {"info_needed", "denied"}
+
+# --- Phase 5: the appeals trigger family (00-commander.md §14) -----------------
+# A fourth disjoint rule table (AP1-AP12). decide() dispatches here after the
+# prior-auth check and BEFORE R1; a trigger belongs to exactly one family.
+APPEAL_TRIGGERS = {
+    "claim_denied",
+    "appeal_resubmitted",
+    "appeal_drafted",
+    "appeal_submission_approved",
+    "appeal_submission_declined",
+    "appeal_resolution_received",
+    "appeal_error",
+}
+APPEAL_DRAFT_TRIGGERS = {"claim_denied", "appeal_resubmitted"}
+# appeal statuses from which nothing further will happen without a human action
+APPEAL_TERMINAL_STATUSES = {
+    "insufficient_basis", "submission_declined",
+    "appeal_approved", "appeal_partial", "appeal_denied", "error",
+}
+APPEAL_EXHAUSTED_RESOLUTIONS = {"partial", "denied"}
 
 
 @dataclass(frozen=True)
@@ -288,18 +319,116 @@ def _decide_prior_auth(state: dict, trigger: dict) -> CommanderDecision:
     )
 
 
+def _decide_appeal(state: dict, trigger: dict) -> CommanderDecision:
+    """The appeals rule table AP1-AP12 (00-commander.md §14.5). Pure.
+
+    INVARIANTS (unlike E/A there is no care-safety concern, so an appeal rule MAY
+    write a status — but):
+      * the ONLY rule routing to 11-appeals with reason `appeal_submit` is AP6,
+        gated on an `appeal_submission_approved` trigger + appeal.status ==
+        'drafted' — no appeal submits without a recorded human approval;
+      * the ONLY rule with a non-None next_status is AP9 — exactly the pair
+        (`appeal_won_claim_reversed`, `paid`), on a won resolution.
+    orchestrator.handle_appeal hard-raises on any violation of either.
+    """
+    ttype = (trigger or {}).get("type")
+    ap = state.get("appeal")
+    has_ap = isinstance(ap, dict)
+    ap_status = ap.get("status") if has_ap else None
+    ap_resolution = (ap.get("resolution_payload") or {}).get("outcome") if has_ap else None
+
+    # AP1 — re-entrancy: a claim_denied while an appeal is already live is a no-op.
+    # `appeal_resubmitted` deliberately skips this (it wants a fresh draft).
+    if (
+        ttype == "claim_denied"
+        and has_ap
+        and ap_status not in APPEAL_TERMINAL_STATUSES
+    ):
+        return CommanderDecision("no_action", "appeal_already_in_progress", None, None)
+
+    # AP2 — draft (or re-draft, for a second-level appeal)
+    if ttype in APPEAL_DRAFT_TRIGGERS:
+        return CommanderDecision("route", "appeal_draft", "11-appeals", None)
+
+    # AP3 — 11 found nothing citable. A denial is always money at risk, so a human
+    # decides (appeal manually / write off). Same shape as A10 / R10.
+    if ttype == "appeal_drafted" and ap_status == "insufficient_basis":
+        return CommanderDecision(
+            "route", "appeal_no_basis_needs_human", "12-escalation", None
+        )
+
+    # AP4 — the letter is drafted and grounded: park for a human's approval to send
+    if ttype == "appeal_drafted" and ap_status == "drafted":
+        return CommanderDecision(
+            "await_human", "appeal_awaiting_submission_approval", None, None
+        )
+
+    # AP5 — an appeal_drafted trigger with a bad status (mirror of a bad draft state)
+    if ttype == "appeal_drafted":
+        return CommanderDecision(
+            "route", "appeal_draft_unrecognized", "12-escalation", None
+        )
+
+    # AP6 — a human approved sending the drafted letter. The ONLY route to
+    # 11.submit, behind two guards: the approval trigger and status 'drafted'.
+    # The structural analogue of R9 behind R7/R8 and of A7 behind its guards.
+    if ttype == "appeal_submission_approved" and ap_status == "drafted":
+        return CommanderDecision("route", "appeal_submit", "11-appeals", None)
+
+    # AP7 — an approval trigger for an appeal that is not 'drafted' (spoof / race).
+    # Escalate; never submit (mirror of R7).
+    if ttype == "appeal_submission_approved":
+        return CommanderDecision(
+            "route", "appeal_approval_without_draft", "12-escalation", None
+        )
+
+    # AP8 — a human declined sending it: record and stop
+    if ttype == "appeal_submission_declined":
+        return CommanderDecision(
+            "no_action", "appeal_submission_declined_recorded", None, None
+        )
+
+    # AP9 — a WON appeal. The ONLY rule with a non-None next_status: reverse the
+    # claim `denied` -> `paid`, simulated.
+    if ttype == "appeal_resolution_received" and ap_resolution == "approved":
+        return CommanderDecision("no_action", "appeal_won_claim_reversed", None, "paid")
+
+    # AP10 — a partial or upheld resolution. The automated path is exhausted; a
+    # human owns the next move. The claim stays `denied`; 12 only logs. Mirror of A10.
+    if (
+        ttype == "appeal_resolution_received"
+        and ap_resolution in APPEAL_EXHAUSTED_RESOLUTIONS
+    ):
+        return CommanderDecision(
+            "route", "appeal_exhausted_needs_human", "12-escalation", None
+        )
+
+    # AP11 — the drafting model was unreachable. A hollow appeal is worse than
+    # none (mirror of R5 for 07's agent.error).
+    if ttype == "appeal_error":
+        return CommanderDecision("route", "appeal_agent_error", "12-escalation", None)
+
+    # AP12 — malformed appeal state (mirror of R20 / E7 / A11)
+    return CommanderDecision(
+        "route", "appeal_unrecognized_state", "12-escalation", None
+    )
+
+
 def decide(state: dict, trigger: dict) -> CommanderDecision:
     """First matching rule wins. Pure.
 
     Dispatch: an eligibility trigger goes to the E1-E7 table (§12.6); a prior-auth
-    trigger goes to the A1-A11 table (§13.6); everything else goes to the claims
-    table R1-R20 (§6). The three never interleave.
+    trigger goes to the A1-A11 table (§13.6); an appeal trigger goes to the
+    AP1-AP12 table (§14.5); everything else goes to the claims table R1-R20 (§6).
+    The four never interleave.
     """
     ttype_dispatch = (trigger or {}).get("type")
     if ttype_dispatch in ELIGIBILITY_TRIGGERS:
         return _decide_eligibility(state, trigger)
     if ttype_dispatch in PRIOR_AUTH_TRIGGERS:
         return _decide_prior_auth(state, trigger)
+    if ttype_dispatch in APPEAL_TRIGGERS:
+        return _decide_appeal(state, trigger)
 
     claim = state.get("claim") or {}
     rec = state.get("recommendation")

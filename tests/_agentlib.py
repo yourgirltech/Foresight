@@ -137,7 +137,7 @@ def ensure_org(email: str, org_name: str) -> tuple[str, str]:
     # order matters: children before parents (payers is on-delete-restrict from
     # claims, eligibility_checks, and prior_authorizations).
     for tbl in ("cost_estimates", "procedure_prices", "card_scans", "patient_coverages",
-                "prior_authorizations", "eligibility_checks", "appointments", "claims",
+                "appeals", "prior_authorizations", "eligibility_checks", "appointments", "claims",
                 "payers", "activity_log", "escalations"):
         svc_write("DELETE", tbl, {"organization_id": f"eq.{org_id}"}, None)
     return org_id, uid

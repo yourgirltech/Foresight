@@ -129,6 +129,7 @@ export interface ClaimDetail {
     documentation_present: boolean;
     coding_matches: boolean;
     last_followup_at: string | null;
+    denial_reason: string | null;
     reasoning_summary: string | null;
     reasoning_detail: { issue_type: string; explanation: string }[] | null;
     reasoning_generated_at: string | null;
@@ -141,6 +142,64 @@ export interface ClaimDetail {
   activity_log: ActivityEntry[];
   escalations: Escalation[];
   follow_ups: FollowUp[];
+  appeals: Appeal[];
+  appeal: Appeal | null;
+}
+
+// --- Appeals (Phase 5 / 11) --------------------------------------------
+
+export type AppealStatus =
+  | "pending"
+  | "drafted"
+  | "insufficient_basis"
+  | "submission_declined"
+  | "submitting"
+  | "submitted"
+  | "appeal_approved"
+  | "appeal_partial"
+  | "appeal_denied"
+  | "error";
+
+export type AppealResolutionOutcome = "approved" | "partial" | "denied";
+
+export interface AppealGround {
+  source: "rule_engine_issue" | "payer_denial_reason" | "action_taken";
+  ref: string | null;
+  detail: string;
+}
+
+export interface Appeal {
+  id: string;
+  claim_id: string;
+  previous_appeal_id: string | null;
+  denial_reason: string | null;
+  grounds: AppealGround[];
+  has_basis: boolean;
+  letter_text: string;
+  status: AppealStatus;
+  model: string | null;
+  submission_payload: Record<string, unknown>;
+  resolution_payload: {
+    outcome?: AppealResolutionOutcome;
+    reversed_amount?: number;
+    bucket?: number;
+  } & Record<string, unknown>;
+  reviewed_by: string | null;
+  reviewed_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+}
+
+export interface AppealDecisionResult {
+  appeal?: Appeal;
+  decision: { action: string; reason_code: string; route_to: string | null };
+}
+
+export interface ClaimAppealResponse {
+  claim_id: string;
+  appeal: Appeal | null;
+  chain: Appeal[];
+  activity_log: ActivityEntry[];
 }
 
 export interface DecisionResult {

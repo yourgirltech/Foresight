@@ -1,12 +1,14 @@
 # 11 — Appeals Agent
 
-_Spec. Written before implementation, per the Phase 1–4 discipline. Cross-check
-this document — and the Commander addendum in
-[`00-commander.md`](00-commander.md) §14 — before any Phase 5 / agent-11 code is
-written._
+_Spec. Written before implementation, per the Phase 1–4 discipline. This
+document and the Commander addendum in [`00-commander.md`](00-commander.md) §14
+are kept in lockstep with the code._
 
-_Status: **SPEC — awaiting review.** Companion: [`../PHASE-5.md`](../PHASE-5.md).
-No code exists yet._
+_Status: **BUILT & PASSING** (2026-09-08). Companion:
+[`../PHASE-5.md`](../PHASE-5.md). Code: `backend/app/agents/appeals.py`,
+`commander._decide_appeal` (AP1–AP12), `orchestrator.handle_appeal`,
+`backend/app/routers/appeals.py`, `frontend/src/components/appeals.tsx` on
+`ClaimDetailPage`. Migration `supabase/migrations/20260907000005_appeals.sql`._
 
 ---
 

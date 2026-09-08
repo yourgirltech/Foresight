@@ -56,7 +56,7 @@ async def get_claim(claim_pk: str, ctx: AuthContext = Depends(require_organizati
             "select": (
                 "id,claim_id,patient_name,patient_member_id,amount,status,risk_score,risk_level,"
                 "authorization_present,documentation_present,coding_matches,last_followup_at,"
-                "reasoning_summary,reasoning_detail,reasoning_generated_at,created_at,"
+                "denial_reason,reasoning_summary,reasoning_detail,reasoning_generated_at,created_at,"
                 "payers(id,name,authorization_required,documentation_required,follow_up_threshold_days)"
             ),
         },
@@ -85,6 +85,12 @@ async def get_claim(claim_pk: str, ctx: AuthContext = Depends(require_organizati
                         "order": "created_at"}),
     )
 
+    # Phase 5: the appeal chain for a denied claim (newest last), if any.
+    appeals_rows = await rest_get(
+        ctx.access_token, "/appeals",
+        {"claim_id": f"eq.{claim_pk}", "select": "*", "order": "created_at"},
+    )
+
     return {
         "claim": claim,
         "payer": payer,
@@ -94,6 +100,8 @@ async def get_claim(claim_pk: str, ctx: AuthContext = Depends(require_organizati
         "activity_log": activity,
         "escalations": escalations,
         "follow_ups": follow_ups,
+        "appeals": appeals_rows,
+        "appeal": appeals_rows[-1] if appeals_rows else None,
     }
 
 

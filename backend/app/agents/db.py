@@ -104,6 +104,22 @@ async def latest_recommendation(org_id: str, claim_pk: str) -> dict | None:
     return rows[0] if rows else None
 
 
+async def list_recommendations(org_id: str, claim_pk: str) -> list[dict]:
+    return await _get(
+        "/recommendations",
+        {"organization_id": f"eq.{org_id}", "claim_id": f"eq.{claim_pk}",
+         "select": "*", "order": "created_at"},
+    )
+
+
+async def list_follow_ups(org_id: str, claim_pk: str) -> list[dict]:
+    return await _get(
+        "/follow_ups",
+        {"organization_id": f"eq.{org_id}", "claim_id": f"eq.{claim_pk}",
+         "select": "*", "order": "created_at"},
+    )
+
+
 async def list_activity(org_id: str, claim_pk: str) -> list[dict]:
     return await _get(
         "/activity_log",
@@ -458,3 +474,44 @@ async def get_cost_estimate(estimate_id: str) -> dict | None:
 async def insert_cost_estimate(org_id: str, fields: dict) -> dict:
     rows = await _write("POST", "/cost_estimates", {}, {**fields, "organization_id": org_id})
     return rows[0]
+
+
+# --------------------------------------------------------------------------- #
+# Phase 5 — appeals (11). A fourth disjoint Commander family. Appeals are
+# claim-scoped: activity_log / escalations reuse claim_id (with context.appeal_id).
+# All writes scoped by org_id, resolved once from the triggering claim.
+# --------------------------------------------------------------------------- #
+async def get_appeal(appeal_id: str) -> dict | None:
+    rows = await _get("/appeals", {"id": f"eq.{appeal_id}", "select": "*", "limit": 1})
+    return rows[0] if rows else None
+
+
+async def latest_appeal(org_id: str, claim_pk: str) -> dict | None:
+    rows = await _get(
+        "/appeals",
+        {"organization_id": f"eq.{org_id}", "claim_id": f"eq.{claim_pk}",
+         "select": "*", "order": "created_at.desc", "limit": 1},
+    )
+    return rows[0] if rows else None
+
+
+async def list_appeals(org_id: str, claim_pk: str) -> list[dict]:
+    return await _get(
+        "/appeals",
+        {"organization_id": f"eq.{org_id}", "claim_id": f"eq.{claim_pk}",
+         "select": "*", "order": "created_at"},
+    )
+
+
+async def insert_appeal(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/appeals", {}, {**fields, "organization_id": org_id})
+    return rows[0]
+
+
+async def update_appeal(org_id: str, appeal_id: str, fields: dict) -> dict | None:
+    rows = await _write(
+        "PATCH", "/appeals",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{appeal_id}"},
+        fields,
+    )
+    return rows[0] if rows else None
