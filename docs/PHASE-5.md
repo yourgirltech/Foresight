@@ -1,10 +1,21 @@
 # Phase 5 — Appeals (11)
 
-_Status: **SPEC — awaiting review.** Agent spec:
+_Status: **BUILT & PASSING** (2026-09-08). Agent spec:
 [`agents/11-appeals-agent.md`](agents/11-appeals-agent.md); Commander addendum:
-[`agents/00-commander.md`](agents/00-commander.md) §14. No code yet. Approve,
-then build in the Phase 1–4 order: migration → agent → orchestrator → endpoints
-→ UI → tests._
+[`agents/00-commander.md`](agents/00-commander.md) §14. Built in the Phase 1–4
+order: migration → agent → orchestrator → endpoints → UI → tests. Every open
+decision in §9 resolved as recommended._
+
+_**Test status:** the pure suites are green with no key —
+`tests/appeals_agent_test.py` (appeal_basis grounding grid + simulate_resolution
+sweep) and `tests/appeals_commander_test.py` (AP1–AP12 + the two
+structural-invariant fuzzes, 616 states); `tests/e2e_appeal_test.py` and the
+Phase-5 slice of `tests/agent_isolation_test.py` run the full draft→approve→
+resolve→reverse flow when `ANTHROPIC_API_KEY` has credit and the degradation
+(error → escalation) path otherwise; `tests/appeals_live_test.py --live` proves
+the model grounds the letter. `scripts/seed_appeals.py` +
+`scripts/run_appeals_proof.sh`. `commander_test.py` /
+`eligibility_commander_test.py` / `prior_auth_commander_test.py` unchanged._
 
 **Goal.** Close the loop on the claims pipeline. Phases 1–4 take a claim from
 ingestion to a human-approved action, verify eligibility and prior auth ahead of
