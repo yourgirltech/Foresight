@@ -45,6 +45,22 @@ class Settings(BaseSettings):
     # there is no hollow fallback template (07's discipline).
     appeals_model: str = "claude-opus-5"
 
+    # Phase 6 — voice appointment reminders (agent 17, an n8n workflow).
+    # n8n calls /api/automation/voice-reminders/* with this bearer token. It is
+    # NOT a Supabase role and is accepted on no other router. Absent -> every
+    # automation endpoint returns 503 (the automation surface is closed).
+    n8n_service_token: str = ""            # N8N_SERVICE_TOKEN
+    # Echoed to n8n in the /due payload so the workflow does not hardcode them.
+    vapi_assistant_id: str = ""            # VAPI_ASSISTANT_ID
+    vapi_phone_number_id: str = ""         # VAPI_PHONE_NUMBER_ID
+    # The Vapi Server URL Secret. n8n's Webhook node verifies it; we keep it here
+    # only for parity / future server-side verification.
+    vapi_webhook_secret: str = ""          # VAPI_WEBHOOK_SECRET
+    voice_reminder_lead_hours: int = 24    # place the call this many hours before the appointment
+    voice_dispatch_lease_minutes: int = 15 # a 'dispatching' row past this with no mark-calling -> lost-dispatch sweep
+    voice_due_batch_limit: int = 50        # max reminders returned by one /due poll
+    voice_due_stale_hours: int = 48        # a reminder this far past scheduled_call_at -> error + escalation, not a late call
+
     frontend_origin: str = "http://localhost:5173"
 
     # Supabase access tokens are minted with this audience.

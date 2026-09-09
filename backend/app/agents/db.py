@@ -278,6 +278,7 @@ async def insert_escalation(
     appointment_id: str | None = None,
     eligibility_check_id: str | None = None,
     prior_authorization_id: str | None = None,
+    voice_reminder_id: str | None = None,
 ) -> dict:
     rows = await _write(
         "POST",
@@ -292,6 +293,7 @@ async def insert_escalation(
             "appointment_id": appointment_id,
             "eligibility_check_id": eligibility_check_id,
             "prior_authorization_id": prior_authorization_id,
+            "voice_reminder_id": voice_reminder_id,
         },
     )
     return rows[0]
@@ -307,6 +309,8 @@ async def insert_activity(
     appointment_id: str | None = None,
     eligibility_check_id: str | None = None,
     prior_authorization_id: str | None = None,
+    voice_reminder_id: str | None = None,
+    patient_contact_id: str | None = None,
 ) -> dict:
     rows = await _write(
         "POST",
@@ -321,6 +325,8 @@ async def insert_activity(
             "appointment_id": appointment_id,
             "eligibility_check_id": eligibility_check_id,
             "prior_authorization_id": prior_authorization_id,
+            "voice_reminder_id": voice_reminder_id,
+            "patient_contact_id": patient_contact_id,
         },
     )
     return rows[0]
@@ -515,3 +521,119 @@ async def update_appeal(org_id: str, appeal_id: str, fields: dict) -> dict | Non
         fields,
     )
     return rows[0] if rows else None
+
+
+# --------------------------------------------------------------------------- #
+# Phase 6 — voice appointment reminders (agent 17, an n8n workflow).
+#
+# The /due list query spans clinics BY DESIGN (it is the cross-clinic dispatch
+# queue). Every per-row write below is org-scoped from the voice_reminders row.
+# docs/agents/17-voice-reminder-agent.md §2.3.
+# --------------------------------------------------------------------------- #
+async def get_organization(org_id: str) -> dict | None:
+    rows = await _get("/organizations", {"id": f"eq.{org_id}", "select": "id,name,timezone", "limit": 1})
+    return rows[0] if rows else None
+
+
+async def get_voice_reminder(vr_id: str) -> dict | None:
+    """By pk. Used ONCE to resolve organization_id for the /outcome and
+    mark-calling paths — the get_claim() analogue."""
+    rows = await _get("/voice_reminders", {"id": f"eq.{vr_id}", "select": "*", "limit": 1})
+    return rows[0] if rows else None
+
+
+async def voice_reminder_by_call_id(vapi_call_id: str) -> dict | None:
+    """The ONLY join key the webhook/outcome path trusts (§2.4)."""
+    rows = await _get(
+        "/voice_reminders", {"vapi_call_id": f"eq.{vapi_call_id}", "select": "*", "limit": 1}
+    )
+    return rows[0] if rows else None
+
+
+async def list_due_voice_reminders(*, before_iso: str, limit: int) -> list[dict]:
+    """status = pending, scheduled_call_at <= now, authorized. Cross-clinic."""
+    return await _get(
+        "/voice_reminders",
+        {
+            "status": "eq.pending",
+            "scheduled_call_at": f"lte.{before_iso}",
+            "authorized_by": "not.is.null",
+            "select": "*",
+            "order": "scheduled_call_at.asc",
+            "limit": limit,
+        },
+    )
+
+
+async def list_stale_dispatching(*, dispatched_before_iso: str, limit: int = 100) -> list[dict]:
+    return await _get(
+        "/voice_reminders",
+        {
+            "status": "eq.dispatching",
+            "dispatched_at": f"lt.{dispatched_before_iso}",
+            "select": "*",
+            "order": "dispatched_at.asc",
+            "limit": limit,
+        },
+    )
+
+
+async def update_voice_reminder(org_id: str, vr_id: str, fields: dict) -> dict | None:
+    rows = await _write(
+        "PATCH", "/voice_reminders",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{vr_id}"},
+        fields,
+    )
+    return rows[0] if rows else None
+
+
+async def insert_voice_reminder(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/voice_reminders", {}, {**fields, "organization_id": org_id})
+    return rows[0]
+
+
+async def get_appointment_any_org(appt_id: str) -> dict | None:
+    rows = await _get("/appointments", {"id": f"eq.{appt_id}", "select": "*", "limit": 1})
+    return rows[0] if rows else None
+
+
+async def get_patient_contact(org_id: str, contact_id: str) -> dict | None:
+    rows = await _get(
+        "/patient_contacts",
+        {"organization_id": f"eq.{org_id}", "id": f"eq.{contact_id}", "select": "*", "limit": 1},
+    )
+    return rows[0] if rows else None
+
+
+async def list_patient_consents(org_id: str, contact_id: str) -> list[dict]:
+    return await _get(
+        "/patient_consents",
+        {
+            "organization_id": f"eq.{org_id}",
+            "patient_contact_id": f"eq.{contact_id}",
+            "select": "*",
+            "order": "recorded_at.asc",
+        },
+    )
+
+
+async def insert_patient_contact(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/patient_contacts", {}, {**fields, "organization_id": org_id})
+    return rows[0]
+
+
+async def insert_patient_consent(org_id: str, fields: dict) -> dict:
+    rows = await _write("POST", "/patient_consents", {}, {**fields, "organization_id": org_id})
+    return rows[0]
+
+
+async def find_patient_contacts(org_id: str, *, patient_name: str, patient_dob: str | None) -> list[dict]:
+    params = {
+        "organization_id": f"eq.{org_id}",
+        "patient_name": f"eq.{patient_name}",
+        "select": "*",
+        "order": "created_at.desc",
+    }
+    if patient_dob:
+        params["patient_dob"] = f"eq.{patient_dob}"
+    return await _get("/patient_contacts", params)

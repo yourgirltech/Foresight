@@ -14,10 +14,11 @@ The resulting AuthContext is the only source of tenant identity in the app.
 """
 from __future__ import annotations
 
+import hmac
 from dataclasses import dataclass
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from .config import Settings, get_settings
@@ -120,3 +121,38 @@ async def require_organization(ctx: AuthContext = Depends(get_auth_context)) -> 
             detail="user is authenticated but not yet attached to an organization",
         )
     return ctx
+
+
+# --------------------------------------------------------------------------- #
+# Phase 6 — the n8n automation principal.
+#
+# n8n calls /api/automation/voice-reminders/* with a static bearer token. This
+# is NOT a Supabase role: it cannot reach PostgREST, the service-role key, or
+# any table directly. It is accepted on no other router. Each automation
+# endpoint resolves organization_id from the voice_reminders row it touches
+# (docs/agents/17-voice-reminder-agent.md §2.3).
+# --------------------------------------------------------------------------- #
+@dataclass(frozen=True)
+class AutomationPrincipal:
+    kind: str = "n8n-automation"
+
+
+async def require_automation(
+    request: Request, settings: Settings = Depends(get_settings)
+) -> AutomationPrincipal:
+    if not settings.n8n_service_token:
+        # the automation surface is closed until the token is configured
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="automation endpoints are not configured (N8N_SERVICE_TOKEN unset)",
+        )
+    header = request.headers.get("authorization", "")
+    scheme, _, token = header.partition(" ")
+    if scheme.lower() != "bearer" or not token or not hmac.compare_digest(
+        token, settings.n8n_service_token
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid automation token",
+        )
+    return AutomationPrincipal()
