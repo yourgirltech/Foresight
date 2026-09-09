@@ -5,6 +5,7 @@ import { CheckHistory, EmergencyPill } from "../components/eligibility";
 import { InsuranceSummary } from "../components/cob";
 import { CostEstimateSection } from "../components/costEstimate";
 import { PriorAuthBadge } from "../components/priorAuth";
+import { VoiceReminderCard } from "../components/voiceReminder";
 import { apiFetch } from "../lib/api";
 import { prettyActor } from "../components/claims";
 import type { AppointmentDetail, EligibilityDecisionResult } from "../lib/types";
@@ -46,7 +47,8 @@ export function AppointmentDetailPage() {
   }
   if (!data) return <p className="text-slate-400">Loading…</p>;
 
-  const { appointment, payer, checks, prior_authorizations, activity_log, coverages, cob } = data;
+  const { appointment, payer, checks, prior_authorizations, activity_log, coverages, cob, voice_reminders } =
+    data;
   const latest = checks[checks.length - 1] ?? null;
 
   async function recheck() {
@@ -175,6 +177,8 @@ export function AppointmentDetailPage() {
           </ul>
         )}
       </section>
+
+      <VoiceReminderCard reminders={voice_reminders} />
 
       <section className="rounded-xl border border-slate-200 bg-white p-5">
         <h2 className="text-sm font-semibold text-slate-700">Activity</h2>

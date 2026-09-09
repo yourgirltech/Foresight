@@ -134,6 +134,18 @@ class Enroll(BaseModel):
     scheduled_call_at: str | None = None
 
 
+@router.get("/api/voice-reminders")
+async def list_voice_reminders(
+    status_filter: str | None = None, ctx: AuthContext = Depends(require_organization)
+) -> dict:
+    """The clinic's reminder call history / monitor. RLS-scoped."""
+    params = {"select": "*", "order": "created_at.desc"}
+    if status_filter:
+        params["status"] = f"eq.{status_filter}"
+    rows = await rest_get(ctx.access_token, "/voice_reminders", params)
+    return {"organization_id": ctx.organization_id, "voice_reminders": rows}
+
+
 @router.get("/api/appointments/{appointment_id}/voice-reminder")
 async def get_appointment_reminder(
     appointment_id: str, ctx: AuthContext = Depends(require_organization)
