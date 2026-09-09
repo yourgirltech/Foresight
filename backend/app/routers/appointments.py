@@ -105,9 +105,16 @@ async def get_appointment(appointment_id: str, ctx: AuthContext = Depends(requir
             dob = None
     cob_summary = cob.cob_summary(coverages, today=datetime.now(timezone.utc).date(), patient_dob=dob)
 
+    # Phase 6: the voice-reminder call history for this appointment (append-only).
+    voice_reminders = await rest_get(
+        ctx.access_token, "/voice_reminders",
+        {"appointment_id": f"eq.{appointment_id}", "select": "*", "order": "created_at"},
+    )
+
     return {"appointment": appt, "payer": payer, "checks": checks,
             "prior_authorizations": prior_authorizations, "activity_log": activity,
-            "coverages": coverages, "cob": cob_summary}
+            "coverages": coverages, "cob": cob_summary,
+            "voice_reminders": voice_reminders}
 
 
 @router.get("/api/eligibility-checks/{check_id}")

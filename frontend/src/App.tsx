@@ -22,6 +22,7 @@ import { LoginPage } from "./pages/LoginPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
 import { PriorAuthDetailPage } from "./pages/PriorAuthDetailPage";
 import { PriorAuthPage } from "./pages/PriorAuthPage";
+import { RemindersPage } from "./pages/RemindersPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignupPage } from "./pages/SignupPage";
 import { StubPage } from "./pages/StubPage";
@@ -58,6 +59,7 @@ export default function App() {
         <Route path="eligibility/:id" element={<EligibilityCheckDetailPage />} />
         <Route path="prior-auth" element={<PriorAuthPage />} />
         <Route path="prior-auth/:id" element={<PriorAuthDetailPage />} />
+        <Route path="reminders" element={<RemindersPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="team" element={<TeamPage />} />
         <Route

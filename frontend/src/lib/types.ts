@@ -266,6 +266,55 @@ export interface AppointmentDetail {
   activity_log: ActivityEntry[];
   coverages: PatientCoverage[];
   cob: Record<string, CobPlacement[]>;
+  voice_reminders: VoiceReminder[];
+}
+
+// --- Voice appointment reminders (Phase 6 / agent 17, an n8n workflow) ---
+
+export type VoiceReminderStatus =
+  | "pending"
+  | "skipped_no_consent"
+  | "skipped_no_phone"
+  | "cancelled"
+  | "dispatching"
+  | "calling"
+  | "confirmed"
+  | "reschedule_requested"
+  | "wrong_person"
+  | "out_of_scope"
+  | "no_answer"
+  | "call_failed"
+  | "error";
+
+export interface VoiceReminder {
+  id: string;
+  appointment_id: string;
+  patient_contact_id: string;
+  patient_name_snapshot: string;
+  patient_phone_snapshot: string;
+  clinic_name_snapshot: string;
+  appointment_at_snapshot: string;
+  timezone_snapshot: string;
+  consent_snapshot: boolean;
+  consent_source_snapshot: string | null;
+  status: VoiceReminderStatus;
+  scheduled_call_at: string;
+  dispatched_at: string | null;
+  authorized_by: string | null;
+  authorized_at: string | null;
+  vapi_call_id: string | null;
+  variable_values: Record<string, string>;
+  outcome: string | null;
+  outcome_payload: Record<string, unknown>;
+  placed_at: string | null;
+  completed_at: string | null;
+  escalation_id: string | null;
+  created_at: string;
+}
+
+export interface VoiceReminderListResponse {
+  organization_id: string;
+  voice_reminders: VoiceReminder[];
 }
 
 // --- Coordination of benefits (Phase 4 / 04) --------------------------
