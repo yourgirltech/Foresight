@@ -18,5 +18,11 @@ anthropic>=0.69
 python-multipart>=0.0.9
 pillow>=11
 
+# Phase 6 voice reminders: resolve_variables() renders {{appointment_date}} /
+# {{appointment_time}} in the clinic's IANA timezone via zoneinfo. Windows (and
+# minimal Linux images) ship no system tz database, so the data package is
+# required, not optional.
+tzdata>=2025.1
+
 # Test suite (tests/) — runnable as plain scripts or under pytest
 pytest>=8

@@ -14,6 +14,8 @@ from .routers import (
     me,
     organizations,
     prior_auth,
+    voice_automation,
+    voice_reminders,
 )
 
 settings = get_settings()
@@ -43,6 +45,8 @@ app.include_router(coverages.router)
 app.include_router(cost_estimates.router)
 app.include_router(dashboard.router)
 app.include_router(demo.router)
+app.include_router(voice_reminders.router)
+app.include_router(voice_automation.router)
 
 
 @app.get("/health", tags=["meta"])
