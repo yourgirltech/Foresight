@@ -1142,11 +1142,15 @@ places an actual phone call via Vapi; it is not a simulation). So it is held to
 > `17.place_call` is about to run and `vr.consent_snapshot is not True` or
 > `vr.authorized_by is None`.
 >
-> **Consent fails closed.** Unlike the emergency fail-safe in §12.4 / §13.4
-> (which resolves ambiguity toward the non-blocking path), `context.can_call`
-> resolves **every** ambiguity — missing field, `None`, malformed phone, absent
-> consent record — to **`False`**. There is no input state that yields a call
-> from missing data.
+> **Consent fails closed, and is re-checked live.** Unlike the emergency
+> fail-safe in §12.4 / §13.4 (which resolves ambiguity toward the non-blocking
+> path), `context.can_call` resolves **every** ambiguity — missing field, `None`,
+> malformed phone, absent consent record, a `revoked` latest ledger state — to
+> **`False`**. There is no input state that yields a call from missing data. The
+> consent state is a durable, append-only `patient_consents` ledger
+> (`17-voice-reminder-agent.md` §4.1); the orchestrator re-reads the **live**
+> ledger at `voice_reminder_due`, so a revocation between enrollment and the
+> scheduled call lands on VR7 (route to a human), never a call.
 
 `voice_reminder_commander_test` fuzzes all three clauses over the full
 `trigger × vr.status × context.can_call × authorized_by{set,None}` space
@@ -1165,15 +1169,19 @@ vr_state = {
   "voice_reminder": {              # the row this trigger concerns; None only pre-create (never, in practice)
     "id": "...", "organization_id": "...", "appointment_id": "...",
     "status": "pending",           # see 17-voice-reminder-agent.md §4.3
-    "consent_snapshot": True,      # AUTHORITATIVE snapshot
+    "consent_snapshot": True,      # the resolved voice-consent state; refreshed from the live ledger at due time
     "patient_phone_snapshot": "+14155550142",
     "authorized_by": "<uuid|None>",# AUTHORITATIVE — the human who enrolled this reminder
     "scheduled_call_at": "...",
     "outcome": "confirmed",        # the raw end_reminder_call string, after the webhook; else None
   },
-  "context": { "can_call": True }, # resolved by the orchestrator, fail-closed; see §15.3
+  "context": { "can_call": True }, # resolved by the orchestrator, fail-closed, from the live patient_consents ledger; §15.3
 }
 ```
+
+`context.can_call` folds in: the current voice-consent state (latest
+`patient_consents` row for this contact is `granted`), a valid E.164
+`patient_phone_snapshot`, and `authorized_by is not None`.
 
 `vr` = `state["voice_reminder"]`; `vr.outcome` is the raw `end_reminder_call`
 string. A `status` is *terminal* if it is one of
@@ -1212,7 +1220,11 @@ Notes (full rationale in `17-voice-reminder-agent.md` §2, §6):
   visible human task (capture consent, fix the number, or call manually) — the
   same shape as AP3 (`insufficient_basis`) and A10. Never a silent drop. The
   orchestrator sets `skipped_no_consent` / `skipped_no_phone` **before** the
-  Commander sees the trigger, from the pure `consent_gate()`.
+  Commander sees the trigger, from the pure `consent_gate()`. **VR7 is the
+  revocation path**: consent was `granted` at enrollment, a `revoked`
+  `patient_consents` row was added before the scheduled call, the due-scan fires
+  `voice_reminder_due`, the orchestrator re-reads the live ledger →
+  `can_call = False` → `skipped_no_consent` → VR7. The call is never placed.
 - **VR4 vs VR5** — enrollment far ahead of the appointment parks at `no_action`
   (`pending`); the due-scan later fires `voice_reminder_due` → VR6. Enrollment
   already inside the lead window places the call immediately (VR4). Both require
@@ -1250,7 +1262,7 @@ Notes (full rationale in `17-voice-reminder-agent.md` §2, §6):
 | VR-2 | `voice_reminder_due` | true | `pending` | VR6 | route → 17.place_call (real Vapi call) |
 | VR-3 | `voice_reminder_enrolled`, no consent on file | false | `skipped_no_consent` | VR2 | route → 12 (`voice_reminder_no_consent_needs_human`); **no call** |
 | VR-4 | `voice_reminder_enrolled`, phone is `"415-555-0142"` | false | `skipped_no_phone` | VR3 | route → 12; **no call** |
-| VR-5 | `voice_reminder_due`, consent later revoked | false | `pending` | VR7 | route → 12; **no call** |
+| VR-5 | `voice_reminder_due`, consent `revoked` in the ledger since enrollment | false (live re-check) | `pending` | VR7 | route → 12 (`skipped_no_consent`); **no call** |
 | VR-6 | `voice_reminder_call_placed` | true | `calling` | VR8 | `no_action`; await the webhook |
 | VR-7 | `voice_reminder_outcome_received` | — | outcome `confirmed` | VR9 | `no_action` — clean terminal |
 | VR-8 | `voice_reminder_outcome_received` | — | outcome `reschedule_needed` | VR10 | route → 12 (`voice_reminder_outcome_needs_human`) |
@@ -1280,13 +1292,18 @@ Notes (full rationale in `17-voice-reminder-agent.md` §2, §6):
 
 ### 15.8 Decisions — see `17-voice-reminder-agent.md` §12
 
-To resolve at review: the VR block as a disjoint family (recommend disjoint); the
-HITL model — per-appointment enrollment as the recorded approval vs. a per-call
-queue (recommend enrollment, with explicit sign-off on the first real external
-action); consent on `appointments` snapshotted vs. a `patient_contacts` table
-(recommend snapshot); `no_answer` → 12 vs. record-only vs. one retry (recommend
-12); no transcript/recording persisted (recommend); webhook auth via
-`X-Vapi-Secret` shared secret (recommend, + HMAC when available); the due-scan as
-a cron script (recommend); `organizations.timezone` added now (recommend);
-`voice_reminder_id` FK on `activity_log` / `escalations` (recommend add); agent
-number 17.
+**Resolved at review (2026-09-09):** VR is a disjoint fifth family; the
+per-appointment enrollment is the recorded HITL approval and there is **no
+auto-retry** of a missed/failed reminder; consent lives in a dedicated
+append-only `patient_contacts` + `patient_consents` ledger (not appointment
+snapshot fields), re-checked live at due time (VR7 is the revocation path); call
+recording is **disabled entirely** and no transcript/recording is persisted;
+`organizations.timezone` is added now.
+
+**Still open:** webhook auth via `X-Vapi-Secret` shared secret (recommend, +
+HMAC when available); the due-scan as a cron script (recommend); the exact Vapi
+payload paths (pinned at build, fail-safe either way); `voice_reminder_id` +
+`patient_contact_id` audit columns (recommend add); first-name-only
+`{{patient_name}}`; a reconcile pass for lost webhooks; UI folded into Tasks;
+agent number 17; contact↔appointment soft-key matching; the explicit
+first-real-external-action review gate.
