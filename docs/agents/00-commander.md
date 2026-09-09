@@ -37,17 +37,16 @@ early branch in `decide()`, after the prior-auth check and before R1. Unlike
 suites still pass unchanged. Full detail:
 [`11-appeals-agent.md`](11-appeals-agent.md)._
 
-_**Phase 6 addendum (§15): SPEC — awaiting review.** The voice-reminder trigger
-family and rule block (VR1–VR14) — `commander._decide_voice_reminder`, a **fifth**
-disjoint early branch in `decide()`, after the appeal check and before R1.
-`next_status is None` for **every** VR rule (a reminder never touches a claim or
-an appointment). VR is the first family whose routed agent performs a **real
-external action** (an outbound phone call via Vapi, not a simulation), so it
-carries two structural preconditions instead of a care-safety invariant: a
-recorded human authorization (`vr.authorized_by`) and **fail-closed** TCPA consent
-(`context.can_call`). §15 does not modify R1–R20 / E1–E7 / A1–A11 / AP1–AP12 —
-the four existing Commander test suites still pass unchanged. Full detail:
-[`17-voice-reminder-agent.md`](17-voice-reminder-agent.md)._
+_**Phase 6 note: the Commander is NOT involved.** Phase 6 (voice appointment
+reminders, agent 17) is deliberately built **outside** the Commander — as an
+**n8n workflow** that talks to a narrow set of FastAPI automation endpoints, not
+as a sixth rule family. There is no `_decide_voice_reminder`, no
+`VOICE_REMINDER_TRIGGERS`, no `orchestrator` entry point, and no diff to
+`commander.py`. R1–R20 / E1–E7 / A1–A11 / AP1–AP12 are untouched. The
+human-approval and TCPA-consent guarantees are enforced by the FastAPI endpoints
+instead (see [`17-voice-reminder-agent.md`](17-voice-reminder-agent.md) §2, §6).
+This addendum exists only to record that the "11 was pencilled in for voice"
+roster note (§2) is resolved by an n8n workflow, not a Commander agent._
 
 ---
 
@@ -115,9 +114,11 @@ implies one falls through to escalation (R20). Assigned since: **01 (eligibility
 Phase 2 — §12**; **02 (prior auth) Phase 3 — §13**; **03/04/05 (card OCR /
 coordination of benefits / cost estimate) Phase 4 — synchronous tools, not
 Commander agents**; **11 (appeals) Phase 5 — §14** (11 was pencilled in for
-patient comms / voice; that role moved to **17 (voice reminder) Phase 6 — §15**;
-13–16 remain unassigned). The claims pipeline (R1–R20) still routes only to
-06/07/08/09/10/12.
+patient comms / voice; **voice appointment reminders shipped in Phase 6 as agent
+17 — but as an n8n workflow outside the Commander, not a rule family**; see
+[`17-voice-reminder-agent.md`](17-voice-reminder-agent.md). 12–16 remain
+Commander-side numbers held for later work). The claims pipeline (R1–R20) still
+routes only to 06/07/08/09/10/12.
 
 ### 2.1 Two kinds of "execution"
 
@@ -1068,242 +1069,3 @@ on request (recommend auto); no-key drafting → `error` + escalate vs. a
 skeleton (recommend `error`); `claim_id` linkage vs. new FK columns (recommend
 `claim_id`); the `claims.denial_reason` column; assigning agent number 11 to
 appeals.
-
----
-
-## 15. Phase 6 addendum — voice appointment reminders (17)
-
-_Status: **SPEC — awaiting review.** Companion doc:
-[`17-voice-reminder-agent.md`](17-voice-reminder-agent.md), which carries the data
-model, the Vapi wiring, the webhook, the orchestrator changes, the UI, and the
-full test plan. This section is **only** the Commander-facing part: the new
-trigger family and the rule block. **It does not touch R1–R20, E1–E7, A1–A11, or
-AP1–AP12.**_
-
-### 15.1 What changes, and what does not
-
-| | |
-|---|---|
-| `CommanderDecision` dataclass | **unchanged** — `action`, `reason_code`, `route_to`, `next_status` |
-| `route_to` value set | gains `"17-voice-reminder"` |
-| `reason_code` closed set | gains the twelve values in §15.5 |
-| `next_status` for any voice-reminder rule | **always `None`** — a reminder never transitions a claim or an appointment (§15.3) |
-| R1–R20, E1–E7, A1–A11, AP1–AP12 | untouched, not reordered, not re-conditioned |
-| `EXECUTABLE_ACTIONS` / `MANUAL_ACTIONS` / `ELIGIBILITY_TRIGGERS` / `PRIOR_AUTH_TRIGGERS` / `APPEAL_TRIGGERS` | untouched |
-
-### 15.2 Dispatch
-
-`decide()` gains a fourth early branch, after the appeal check, before R1:
-
-```python
-VOICE_REMINDER_TRIGGERS = {
-    "voice_reminder_enrolled", "voice_reminder_due", "voice_reminder_call_placed",
-    "voice_reminder_outcome_received", "voice_reminder_call_failed",
-    "voice_reminder_error",
-}
-
-def decide(state, trigger):
-    ttype = (trigger or {}).get("type")
-    if ttype in ELIGIBILITY_TRIGGERS:
-        return _decide_eligibility(state, trigger)        # §12.6, E1-E7
-    if ttype in PRIOR_AUTH_TRIGGERS:
-        return _decide_prior_auth(state, trigger)         # §13.6, A1-A11
-    if ttype in APPEAL_TRIGGERS:
-        return _decide_appeal(state, trigger)             # §14.5, AP1-AP12
-    if ttype in VOICE_REMINDER_TRIGGERS:
-        return _decide_voice_reminder(state, trigger)     # §15.5, VR1-VR14
-    # ... existing R1-R20, entirely unchanged ...
-```
-
-The five rule tables are **disjoint**. A trigger belongs to exactly one family;
-`state` is claim-, eligibility-, prior-auth-, appeal-, or voice-reminder-shaped.
-Family order among the early branches is irrelevant (disjoint sets); it is fixed
-eligibility → prior-auth → appeal → voice-reminder for readability.
-
-### 15.3 The structural invariants
-
-Voice reminders touch no care object and no billing object — but VR is the first
-family whose routed agent performs a **real external action** (`17.place_call`
-places an actual phone call via Vapi; it is not a simulation). So it is held to
-**three** invariants:
-
-> **No status transition.** `decision.next_status is None` for **every** VR rule
-> (VR1–VR14). 17 writes only `voice_reminders` / `activity_log` / `escalations`.
-> `orchestrator.handle_voice_reminder` hard-`raise`s on any non-None
-> `next_status`.
->
-> **The consent + authorization gate.** `route_to == "17-voice-reminder"` (always
-> `reason_code == "voice_reminder_place_call"`) occurs on **exactly two rules
-> (VR4, VR6)**, each requiring `context.can_call is True`.
-> `context.can_call` is resolved by the orchestrator and folds in: TCPA
-> `consent_snapshot is True`, a syntactically valid E.164
-> `patient_phone_snapshot`, **and** a recorded human `authorized_by`.
-> `orchestrator.handle_voice_reminder` additionally hard-`raise`s if
-> `17.place_call` is about to run and `vr.consent_snapshot is not True` or
-> `vr.authorized_by is None`.
->
-> **Consent fails closed, and is re-checked live.** Unlike the emergency
-> fail-safe in §12.4 / §13.4 (which resolves ambiguity toward the non-blocking
-> path), `context.can_call` resolves **every** ambiguity — missing field, `None`,
-> malformed phone, absent consent record, a `revoked` latest ledger state — to
-> **`False`**. There is no input state that yields a call from missing data. The
-> consent state is a durable, append-only `patient_consents` ledger
-> (`17-voice-reminder-agent.md` §4.1); the orchestrator re-reads the **live**
-> ledger at `voice_reminder_due`, so a revocation between enrollment and the
-> scheduled call lands on VR7 (route to a human), never a call.
-
-`voice_reminder_commander_test` fuzzes all three clauses over the full
-`trigger × vr.status × context.can_call × authorized_by{set,None}` space
-(`17-voice-reminder-agent.md` §11).
-
-### 15.4 The state the Commander reads for a voice-reminder trigger
-
-Assembled by the orchestrator, handed in. Read-only, single-tenant.
-
-```python
-vr_state = {
-  "appointment": {                 # the appointment this reminder is for
-    "id": "...", "organization_id": "...", "scheduled_at": "...", "patient_name": "...",
-  },
-  "organization": { "id": "...", "name": "...", "timezone": "America/New_York" },
-  "voice_reminder": {              # the row this trigger concerns; None only pre-create (never, in practice)
-    "id": "...", "organization_id": "...", "appointment_id": "...",
-    "status": "pending",           # see 17-voice-reminder-agent.md §4.3
-    "consent_snapshot": True,      # the resolved voice-consent state; refreshed from the live ledger at due time
-    "patient_phone_snapshot": "+14155550142",
-    "authorized_by": "<uuid|None>",# AUTHORITATIVE — the human who enrolled this reminder
-    "scheduled_call_at": "...",
-    "outcome": "confirmed",        # the raw end_reminder_call string, after the webhook; else None
-  },
-  "context": { "can_call": True }, # resolved by the orchestrator, fail-closed, from the live patient_consents ledger; §15.3
-}
-```
-
-`context.can_call` folds in: the current voice-consent state (latest
-`patient_consents` row for this contact is `granted`), a valid E.164
-`patient_phone_snapshot`, and `authorized_by is not None`.
-
-`vr` = `state["voice_reminder"]`; `vr.outcome` is the raw `end_reminder_call`
-string. A `status` is *terminal* if it is one of
-`{skipped_no_consent, skipped_no_phone, cancelled, confirmed, reschedule_requested, wrong_person, out_of_scope, no_answer, call_failed, error}`.
-
-### 15.5 The rule block (VR1–VR14)
-
-Evaluated top to bottom, first match wins — same discipline as §6 / §12.6 /
-§13.6 / §14.5. `next_status` is `None` in **every** row (§15.3).
-`context.can_call` per §15.3.
-
-| # | Condition | action | route_to | reason_code | next_status |
-|---|-----------|--------|----------|-------------|-------------|
-| **VR1** | `trigger.type == "voice_reminder_enrolled"` **and** `vr.status` is not `pending` | `no_action` | — | `voice_reminder_already_handled` | `None` |
-| **VR2** | `trigger.type == "voice_reminder_enrolled"` **and** `vr.status == "skipped_no_consent"` | `route` | `12-escalation` | `voice_reminder_no_consent_needs_human` | `None` |
-| **VR3** | `trigger.type == "voice_reminder_enrolled"` **and** `vr.status == "skipped_no_phone"` | `route` | `12-escalation` | `voice_reminder_no_phone_needs_human` | `None` |
-| **VR4** | `trigger.type == "voice_reminder_enrolled"` **and** `context.can_call` **and** now ≥ `vr.scheduled_call_at` | `route` | `17-voice-reminder` | `voice_reminder_place_call` | `None` |
-| **VR5** | `trigger.type == "voice_reminder_enrolled"` **and** `context.can_call` | `no_action` | — | `voice_reminder_scheduled_pending_due` | `None` |
-| **VR6** | `trigger.type == "voice_reminder_due"` **and** `context.can_call` **and** `vr.status == "pending"` | `route` | `17-voice-reminder` | `voice_reminder_place_call` | `None` |
-| **VR7** | `trigger.type == "voice_reminder_due"` **and not** `context.can_call` | `route` | `12-escalation` | `voice_reminder_no_consent_needs_human` | `None` |
-| **VR8** | `trigger.type == "voice_reminder_call_placed"` | `no_action` | — | `voice_reminder_call_in_progress` | `None` |
-| **VR9** | `trigger.type == "voice_reminder_outcome_received"` **and** `vr.outcome == "confirmed"` | `no_action` | — | `voice_reminder_confirmed` | `None` |
-| **VR10** | `trigger.type == "voice_reminder_outcome_received"` **and** `vr.outcome in {"reschedule_needed","wrong_person","out_of_scope"}` | `route` | `12-escalation` | `voice_reminder_outcome_needs_human` | `None` |
-| **VR11** | `trigger.type == "voice_reminder_outcome_received"` | `route` | `12-escalation` | `voice_reminder_no_outcome_needs_human` | `None` |
-| **VR12** | `trigger.type == "voice_reminder_call_failed"` | `route` | `12-escalation` | `voice_reminder_call_failed` | `None` |
-| **VR13** | `trigger.type == "voice_reminder_error"` | `route` | `12-escalation` | `voice_reminder_agent_error` | `None` |
-| **VR14** | any voice-reminder trigger, nothing above matched | `route` | `12-escalation` | `voice_reminder_unrecognized_state` | `None` |
-
-Notes (full rationale in `17-voice-reminder-agent.md` §2, §6):
-
-- **VR1 before VR2–VR5** — re-entrancy guard. A duplicate
-  `voice_reminder_enrolled` for a row already past `pending` (calling / terminal)
-  is a no-op.
-- **VR2 / VR3 / VR7** — the consent/phone preconditions failed. A missed reminder
-  is patient-access money at risk, so "we could not call this patient" is a
-  visible human task (capture consent, fix the number, or call manually) — the
-  same shape as AP3 (`insufficient_basis`) and A10. Never a silent drop. The
-  orchestrator sets `skipped_no_consent` / `skipped_no_phone` **before** the
-  Commander sees the trigger, from the pure `consent_gate()`. **VR7 is the
-  revocation path**: consent was `granted` at enrollment, a `revoked`
-  `patient_consents` row was added before the scheduled call, the due-scan fires
-  `voice_reminder_due`, the orchestrator re-reads the live ledger →
-  `can_call = False` → `skipped_no_consent` → VR7. The call is never placed.
-- **VR4 vs VR5** — enrollment far ahead of the appointment parks at `no_action`
-  (`pending`); the due-scan later fires `voice_reminder_due` → VR6. Enrollment
-  already inside the lead window places the call immediately (VR4). Both require
-  `context.can_call`.
-- **VR6** — the **only** rule reached from the clock. Behind two guards
-  (`context.can_call`, `vr.status == "pending"`). The structural analogue of R9
-  behind R7/R8, A7 behind its guards, AP6 behind its guards.
-- **VR8** — the call is live at Vapi; nothing to decide until the webhook. The
-  row is `calling`.
-- **VR9** — `confirmed` is the **only** clean terminal. `no_action`; the
-  appointment view shows "Patient confirmed".
-- **VR10** — a real structured outcome that is not a confirmation
-  (`reschedule_needed` / `wrong_person` / `out_of_scope`). Automated handling is
-  done; a human owns the next move (reschedule, verify the number/consent, or
-  respond to whatever the patient raised — the assistant already told them "a
-  representative from {{clinic_name}} will reach out"). Mirror of A10 / AP10.
-- **VR11** — an `end-of-call-report` with **no** structured outcome (voicemail,
-  no pickup, early hangup). `classify_outcome` maps every such case to
-  `no_answer`; the Commander routes it to a human ("reminder not completed —
-  patient did not confirm"). Escalate-vs-record-vs-retry is
-  `17-voice-reminder-agent.md` §12.4.
-- **VR12** — Vapi could not place or complete the call. `call_failed`, escalated;
-  a human re-enrolls (no automatic retry in Phase 6). Mirror of R6 for
-  `execution.failed`.
-- **VR13** — our side raised (bad appointment data, `place_call` unavailable
-  classified as `error` rather than `call_failed`, classifier crash). Mirror of
-  R5 / AP11.
-- **VR14** — malformed voice-reminder state (mirror of R20 / E7 / A11 / AP12).
-
-### 15.6 Worked traces
-
-| # | trigger | can_call | vr.status / outcome | matches | outcome |
-|---|---------|----------|----------------------|---------|---------|
-| VR-1 | `voice_reminder_enrolled`, enrolled a week out | true | `pending` | VR5 | `no_action`; row waits for the due-scan |
-| VR-2 | `voice_reminder_due` | true | `pending` | VR6 | route → 17.place_call (real Vapi call) |
-| VR-3 | `voice_reminder_enrolled`, no consent on file | false | `skipped_no_consent` | VR2 | route → 12 (`voice_reminder_no_consent_needs_human`); **no call** |
-| VR-4 | `voice_reminder_enrolled`, phone is `"415-555-0142"` | false | `skipped_no_phone` | VR3 | route → 12; **no call** |
-| VR-5 | `voice_reminder_due`, consent `revoked` in the ledger since enrollment | false (live re-check) | `pending` | VR7 | route → 12 (`skipped_no_consent`); **no call** |
-| VR-6 | `voice_reminder_call_placed` | true | `calling` | VR8 | `no_action`; await the webhook |
-| VR-7 | `voice_reminder_outcome_received` | — | outcome `confirmed` | VR9 | `no_action` — clean terminal |
-| VR-8 | `voice_reminder_outcome_received` | — | outcome `reschedule_needed` | VR10 | route → 12 (`voice_reminder_outcome_needs_human`) |
-| VR-9 | `voice_reminder_outcome_received` | — | outcome `wrong_person` | VR10 | route → 12; number/consent flagged for review |
-| VR-10 | `voice_reminder_outcome_received` | — | outcome `None` (voicemail) | VR11 | route → 12 (`voice_reminder_no_outcome_needs_human`) |
-| VR-11 | `voice_reminder_call_failed` | — | `call_failed` | VR12 | route → 12 |
-| VR-12 | `voice_reminder_error` | — | `error` | VR13 | route → 12 |
-| VR-13 | `voice_reminder_outcome_received`, no `voice_reminders` row for the call id | — | — | (webhook drops it before the Commander — §8.2) | — |
-
-### 15.7 Test plan (Commander-facing slice — full plan in `17-voice-reminder-agent.md` §11)
-
-`tests/voice_reminder_commander_test.py`, stdlib only, no stack:
-
-- one case per VR1–VR14;
-- a re-run of representative R / E / A / AP cases to prove
-  R1–R20 / E1–E7 / A1–A11 / AP1–AP12 are unchanged;
-- **the consent-gate fuzz**: over
-  `trigger × vr.status × context.can_call × authorized_by{set,None}`, assert
-  determinism, and on every result —
-  `decision.next_status is None`;
-  `route_to == "17-voice-reminder"` ⟹
-  `reason_code == "voice_reminder_place_call"` **and** `context.can_call is True`
-  **and** `trigger.type in {"voice_reminder_due","voice_reminder_enrolled"}`;
-  and `context.can_call is not True` ⟹ `route_to != "17-voice-reminder"`;
-- named `test_a_reminder_never_calls_without_consent_and_authorization`,
-  `test_voice_reminder_never_touches_claim_or_appointment_status`.
-
-### 15.8 Decisions — see `17-voice-reminder-agent.md` §12
-
-**Resolved at review (2026-09-09):** VR is a disjoint fifth family; the
-per-appointment enrollment is the recorded HITL approval and there is **no
-auto-retry** of a missed/failed reminder; consent lives in a dedicated
-append-only `patient_contacts` + `patient_consents` ledger (not appointment
-snapshot fields), re-checked live at due time (VR7 is the revocation path); call
-recording is **disabled entirely** and no transcript/recording is persisted;
-`organizations.timezone` is added now.
-
-**Still open:** webhook auth via `X-Vapi-Secret` shared secret (recommend, +
-HMAC when available); the due-scan as a cron script (recommend); the exact Vapi
-payload paths (pinned at build, fail-safe either way); `voice_reminder_id` +
-`patient_contact_id` audit columns (recommend add); first-name-only
-`{{patient_name}}`; a reconcile pass for lost webhooks; UI folded into Tasks;
-agent number 17; contact↔appointment soft-key matching; the explicit
-first-real-external-action review gate.
