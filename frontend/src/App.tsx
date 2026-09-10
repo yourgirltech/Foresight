@@ -20,12 +20,15 @@ import { FrontDeskPage } from "./pages/FrontDeskPage";
 import { EligibilityCheckDetailPage } from "./pages/EligibilityCheckDetailPage";
 import { LoginPage } from "./pages/LoginPage";
 import { OnboardingPage } from "./pages/OnboardingPage";
+import { InsurancePage } from "./pages/InsurancePage";
+import { PatientsPage } from "./pages/PatientsPage";
 import { PriorAuthDetailPage } from "./pages/PriorAuthDetailPage";
 import { PriorAuthPage } from "./pages/PriorAuthPage";
 import { RemindersPage } from "./pages/RemindersPage";
+import { ReportsPage } from "./pages/ReportsPage";
 import { SettingsPage } from "./pages/SettingsPage";
 import { SignupPage } from "./pages/SignupPage";
-import { StubPage } from "./pages/StubPage";
+import { TasksPage } from "./pages/TasksPage";
 import { TeamPage } from "./pages/TeamPage";
 
 export default function App() {
@@ -62,45 +65,13 @@ export default function App() {
         <Route path="reminders" element={<RemindersPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="team" element={<TeamPage />} />
-        <Route
-          path="patients"
-          element={
-            <StubPage
-              title="Patients"
-              blurb="A unified patient record — demographics, coverage, visit history, and the AI's per-patient risk flags."
-            />
-          }
-        />
-        <Route
-          path="insurance"
-          element={
-            <StubPage
-              title="Insurance"
-              blurb="Payer directory, plan rules, and real-time eligibility beyond the appointment view."
-            />
-          }
-        />
+        <Route path="patients" element={<PatientsPage />} />
+        <Route path="insurance" element={<InsurancePage />} />
         <Route path="front-desk" element={<FrontDeskPage />} />
         <Route path="front-desk/:id" element={<CardScanReviewPage />} />
         <Route path="cost-estimates/:id" element={<CostEstimatePage />} />
-        <Route
-          path="tasks"
-          element={
-            <StubPage
-              title="Tasks"
-              blurb="Everything the AI has surfaced for a human — denials to prevent, follow-ups to make, refills to review."
-            />
-          }
-        />
-        <Route
-          path="reports"
-          element={
-            <StubPage
-              title="Reports"
-              blurb="Revenue-cycle KPIs, denial trends, and automation impact over time."
-            />
-          }
-        />
+        <Route path="tasks" element={<TasksPage />} />
+        <Route path="reports" element={<ReportsPage />} />
       </Route>
 
       {/* stale bookmarks from before the /app move */}

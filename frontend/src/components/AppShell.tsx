@@ -39,7 +39,7 @@ const NAV: NavItem[] = [
   { to: "/app/reminders", label: "Reminders", icon: PhoneCall },
   { to: "/app/claims", label: "Claims", icon: FileText },
   { to: "/app/front-desk", label: "Front Desk", icon: UserRound },
-  { to: "/app/tasks", label: "Tasks", icon: ClipboardList, badge: 3 },
+  { to: "/app/tasks", label: "Tasks", icon: ClipboardList },
   { to: "/app/reports", label: "Reports", icon: BarChart3 },
   { to: "/app/settings", label: "Settings", icon: Settings },
 ];
@@ -75,8 +75,25 @@ function usePriorAuthBadge(): number | undefined {
   return count;
 }
 
+function useTasksBadge(): number | undefined {
+  const [count, setCount] = useState<number | undefined>(undefined);
+  useEffect(() => {
+    let active = true;
+    apiFetch<{ total: number }>("/api/tasks")
+      .then((d) => {
+        if (active) setCount(d.total || undefined);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
+  return count;
+}
+
 function Sidebar() {
   const priorAuthBadge = usePriorAuthBadge();
+  const tasksBadge = useTasksBadge();
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-surface md:flex">
       {/* the wordmark always links back OUT to the public marketing site */}
@@ -89,7 +106,12 @@ function Sidebar() {
 
       <nav className="flex-1 space-y-1 px-3 py-2">
         {NAV.map(({ to, label, icon: Icon, end, badge: staticBadge }) => {
-          const badge = to === "/app/prior-auth" ? priorAuthBadge : staticBadge;
+          const badge =
+            to === "/app/prior-auth"
+              ? priorAuthBadge
+              : to === "/app/tasks"
+                ? tasksBadge
+                : staticBadge;
           return (
           <NavLink
             key={to}
