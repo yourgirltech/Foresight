@@ -580,3 +580,102 @@ export interface Invitation {
   created_at: string;
   accepted_at: string | null;
 }
+
+// --- Insights: Tasks / Insurance / Patients / Reports (aggregate views) ---
+
+export interface TaskItem {
+  id: string;
+  kind: "escalation" | "approval" | "prior_auth" | "appeal" | "reminder";
+  title: string;
+  detail: string;
+  severity: "high" | "medium" | "low";
+  link: string | null;
+  created_at: string;
+}
+export interface TasksResponse {
+  organization_id: string;
+  tasks: TaskItem[];
+  counts: Record<string, number>;
+  total: number;
+}
+
+export interface PayerRow {
+  id: string;
+  name: string;
+  rules: {
+    authorization_required: boolean | null;
+    documentation_required: boolean | null;
+    follow_up_threshold_days: number | null;
+    eligibility_verification_supported: boolean | null;
+    eligibility_active_threshold: number | null;
+    prior_auth_supported: boolean | null;
+    prior_auth_required_default: boolean | null;
+    prior_auth_approval_threshold: number | null;
+  };
+  claims: { total: number; denied: number; paid: number; billed_amount: number };
+  prior_auth: { total: number; denied: number; approved: number };
+  eligibility: { total: number; inactive: number; failed: number };
+}
+export interface PayersResponse {
+  organization_id: string;
+  payers: PayerRow[];
+}
+
+export interface PatientRow {
+  name: string;
+  dob: string | null;
+  member_ids: string[];
+  payers: string[];
+  appointments: number;
+  claims: number;
+  denied_claims: number;
+  high_risk_claims: number;
+  billed_amount: number;
+  eligibility_issues: number;
+  reminder_issues: number;
+  last_activity: string | null;
+  flags: string[];
+}
+export interface PatientsResponse {
+  organization_id: string;
+  patients: PatientRow[];
+  total: number;
+}
+
+export interface ReportsResponse {
+  organization_id: string;
+  claims: {
+    total: number;
+    by_status: Record<string, number>;
+    clean_rate_pct: number | null;
+    denial_rate_pct: number | null;
+    billed_amount: number;
+    paid_amount: number;
+    denied_amount: number;
+  };
+  automation: {
+    agent_actions_executed: number;
+    escalated_to_human: number;
+    human_approvals: number;
+    automation_rate_pct: number | null;
+  };
+  prior_auth: {
+    submitted: number;
+    approval_rate_pct: number | null;
+    not_required: number;
+    emergency_exempt: number;
+  };
+  appeals: {
+    resolved: number;
+    win_rate_pct: number | null;
+    partial: number;
+    upheld: number;
+  };
+  eligibility: Record<string, number>;
+  voice_reminders: {
+    completed: number;
+    confirmed: number;
+    confirm_rate_pct: number | null;
+    by_status: Record<string, number>;
+  };
+}
