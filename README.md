@@ -3,6 +3,8 @@
 AI-powered **patient access & revenue cycle** platform for healthcare providers.
 Multi-clinic SaaS from day one.
 
+> **In production for a client.** The live system runs on the client's own domain and isn't linked here. This repository is the build record: the full source, with client data, credentials and URLs removed.
+
 > **Core principle (non-negotiable):** AI recommends or drafts. A human approves
 > anything consequential. Automation executes only *after* approval. This applies
 > to every agent in the system.
