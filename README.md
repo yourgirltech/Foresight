@@ -30,8 +30,29 @@ foresight/
 ├── supabase/     Postgres schema + Row Level Security policies + RPCs (migrations).
 ├── tests/        Two-clinic data-isolation proof, rule-engine + Commander unit tests, agent isolation, e2e.
 ├── scripts/      Isolation-proof orchestration; synthetic claim seeder.
+├── n8n/          Voice-reminder workflows (Vapi outbound calls), credentials stripped.
+├── docker-compose.yml  Backend as a persistent container on the local Supabase network.
 └── docs/         Architecture, phase notes, agent specs.
 ```
+
+## Voice-reminder agent (Vapi + n8n)
+
+An automated phone call confirms each upcoming appointment. Anything other than a
+clean "yes, I'll be there" becomes a real escalation in the staff Tasks queue.
+
+- `n8n/voice-reminder-place-calls.json` fetches reminders that are due, asks the backend
+  to **authorize each dial**, places the call through Vapi, and reports failures back.
+- `n8n/voice-reminder-receive-outcome.json` receives Vapi's end-of-call report and posts
+  the outcome to the backend.
+- **Consent is re-checked live at every step**, not trusted from enrollment. Dial
+  authorization is atomic and single-use in Postgres, and a final gate catches a
+  revocation that lands after authorization. n8n only executes; the backend
+  (`app/routers/voice_automation.py`, behind a dedicated machine token) decides who
+  may be called.
+- Spec: [`docs/agents/17-voice-reminder-agent.md`](docs/agents/17-voice-reminder-agent.md).
+
+Run the backend as a container with `docker compose up -d --build`. Secrets come from the
+gitignored `backend/.env` at runtime and are never baked into the image.
 
 ## Prerequisites
 
