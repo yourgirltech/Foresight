@@ -1,0 +1,521 @@
+{
+  "name": "voice-reminder: place calls",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.4,
+      "position": [
+        288,
+        -240
+      ],
+      "id": "4a98ce1b-552a-48e6-a057-527d1a551571",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "url": "http://host.docker.internal:8000/api/automation/voice-reminders/due",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        224,
+        0
+      ],
+      "id": "fa6115e8-c908-4915-ae92-e909f143bbea",
+      "name": "Get due reminders",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Foresight Automation Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "35a8bae6-edeb-4b0c-bb93-fe0fe164f1d3",
+              "leftValue": "={{$json.due.length}}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        448,
+        0
+      ],
+      "id": "7858c5ee-21df-4b94-b23a-6cc205a1582d",
+      "name": "Has due reminders?"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "due",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        672,
+        -192
+      ],
+      "id": "ed8817fc-7e32-4214-8406-ee5bef50471b",
+      "name": "Split Out"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.vapi.ai/call",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ assistantId: $('Split Out').item.json.vapi.assistant_id, phoneNumberId: $('Split Out').item.json.vapi.phone_number_id, customer: { number: $('Split Out').item.json.vapi.customer_number }, assistantOverrides: { variableValues: $('Split Out').item.json.vapi.variable_values, artifactPlan: { recordingEnabled: false } } }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1296,
+        -192
+      ],
+      "id": "117a0dea-8edf-4908-a3df-fdbb70e5b160",
+      "name": "Place Vapi call",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Vapi API Key"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "38760dee-fc11-41c7-9c79-725f912fe7bd",
+              "leftValue": "={{$json.id}}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1504,
+        -192
+      ],
+      "id": "df701482-575d-45d1-adf4-19c757ca51fa",
+      "name": "Call created?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/automation/voice-reminders/{{$('Split Out').item.json.voice_reminder_id}}/mark-calling",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vapi_call_id: $json.id, vapi_call_status: $json.status }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1712,
+        -288
+      ],
+      "id": "7b067986-316d-4db0-b9c4-e8b5100ecb39",
+      "name": "Mark calling",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Foresight Automation Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/automation/voice-reminders/{{$('Split Out').item.json.voice_reminder_id}}/dispatch-failed",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ error: 'call create failed', vapi_status: String($json.error?.httpCode ?? $json.statusCode ?? 'unknown'), detail: String($json.error?.message ?? $json.message ?? 'Vapi returned no call id').slice(0, 500) }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        1712,
+        -32
+      ],
+      "id": "c1749525-1818-4723-a3ed-18939c92b710",
+      "name": "Report dispatch failure",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Foresight Automation Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "bd8b9523-8db6-4f95-82b0-f71f8da4902b",
+              "leftValue": "={{ $json.status ?? '' }}",
+              "rightValue": "calling",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1920,
+        -288
+      ],
+      "id": "aa1fae31-caa7-401f-b925-60f29e043888",
+      "name": "Not confirmed calling?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $('Place Vapi call').item.json.monitor?.controlUrl ?? '' }}",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ type: 'end-call' }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2128,
+        -384
+      ],
+      "id": "ea568235-1edf-407c-9670-7087cf99852f",
+      "name": "End call",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Vapi API Key"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "id": "ae510cab-c425-4629-9bd5-bc1c34718bd3",
+      "name": "Authorize dial",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        880,
+        -192
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/automation/voice-reminders/{{ $json.voice_reminder_id }}/authorize-dial",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Foresight Automation Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "f101cc4e-d93a-46e6-9805-208ac81e9250",
+      "name": "Dial authorized?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        1088,
+        -192
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "6f1d2c1e-6a51-4c5e-9d0e-0a7c0b9d1a01",
+              "leftValue": "={{ $json.authorized === true }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "b50a05af-8fff-466d-b0df-74e6af724c60",
+      "name": "Report end-call failure",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        2336,
+        -320
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=http://host.docker.internal:8000/api/automation/voice-reminders/{{ $('Split Out').item.json.voice_reminder_id }}/end-call-failed",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ vapi_call_id: $('Place Vapi call').item.json.id, error: String($json.error?.message ?? 'end-call not confirmed').slice(0, 500) }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "neverError": true
+            }
+          }
+        }
+      },
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "",
+          "name": "Foresight Automation Token"
+        }
+      },
+      "onError": "continueRegularOutput"
+    }
+  ],
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get due reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get due reminders": {
+      "main": [
+        [
+          {
+            "node": "Has due reminders?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has due reminders?": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Place Vapi call": {
+      "main": [
+        [
+          {
+            "node": "Call created?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report dispatch failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call created?": {
+      "main": [
+        [
+          {
+            "node": "Mark calling",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Report dispatch failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark calling": {
+      "main": [
+        [
+          {
+            "node": "Not confirmed calling?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Not confirmed calling?": {
+      "main": [
+        [
+          {
+            "node": "End call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "Authorize dial",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Authorize dial": {
+      "main": [
+        [
+          {
+            "node": "Dial authorized?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Dial authorized?": {
+      "main": [
+        [
+          {
+            "node": "Place Vapi call",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "End call": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Report end-call failure",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "pinData": {},
+  "active": false
+}
