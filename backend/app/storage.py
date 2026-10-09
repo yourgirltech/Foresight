@@ -57,7 +57,13 @@ async def create_signed_url(
         signed = resp.json().get("signedURL") or resp.json().get("signedUrl")
     if not signed:
         raise RuntimeError(f"Storage did not return a signed URL for {bucket}/{path}")
-    return f"{_storage_base()}{signed}" if signed.startswith("/") else signed
+    if not signed.startswith("/"):
+        return signed
+    # Browser-facing: use the public Supabase address, not the internal one the
+    # backend itself talks to (they differ only when the backend is in Docker).
+    s = get_settings()
+    public = (s.supabase_public_url or s.supabase_url).rstrip("/")
+    return f"{public}/storage/v1{signed}"
 
 
 async def delete_object(bucket: str, path: str) -> None:

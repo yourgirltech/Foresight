@@ -1,0 +1,10 @@
+# secrets — supplied at runtime via env_file, never baked into the image
+.env
+.env.*
+!.env.example
+
+# local tooling / caches
+.venv
+__pycache__
+*.pyc
+.pytest_cache

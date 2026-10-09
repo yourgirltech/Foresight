@@ -113,14 +113,35 @@ fact that the `/due` endpoint returns patient phone numbers to n8n (§2.3).
 > the number is valid E.164. Absent consent, a `revoked` latest state, missing or
 > malformed number, or any ambiguity → `can_call = False`.
 >
-> The check runs **three times**, each against the **live** ledger:
+> The check runs **four times**, each against the **live** ledger:
 > 1. at **enrollment** — `409` if not granted (fail fast, clean UX);
 > 2. at **`/due`** — a pending row whose consent has since been revoked is set to
 >    `skipped_no_consent`, an escalation is created, and it is **omitted from the
 >    response** — n8n never sees it;
-> 3. at **`mark-calling`** — the final gate, closing the seconds-wide race
->    between `/due` and the dial; `409 {reason:"consent_revoked"}` → the row is
->    skipped + escalated and n8n cancels the just-placed Vapi call.
+> 3. at **`authorize-dial`** — the **pre-dial gate** (migration
+>    `20261004000001`). n8n calls it immediately before the Vapi request and
+>    dials **only** on `{"authorized": true}`; an error, a timeout, or any other
+>    response means no dial. `public.voice_authorize_dial()` is one atomic
+>    statement: it row-locks the reminder, reads the ledger with a fresh
+>    snapshot (every revocation committed before the check is seen; a
+>    `recorded_at` tie containing a `revoked` row counts as revoked), refuses an
+>    expired lease, and is **single-use** (`dial_authorized_at`), so a replayed
+>    or concurrent authorize can never authorize a second dial;
+> 4. at **`mark-calling`** — the post-dial gate. It refuses a call that was not
+>    dial-authorized, re-checks the live ledger, and on any refusal (`409`) the
+>    row is skipped/errored + escalated and n8n **ends the live call** via Vapi
+>    Live Call Control (`POST monitor.controlUrl {"type":"end-call"}`). If ending
+>    the call is not confirmed, n8n reports `end-call-failed`, which escalates.
+>
+> **The exact guarantee.** No reminder is dialled unless its voice consent was
+> `granted` in the committed ledger at the authorization instant — the last step
+> before n8n sends the Vapi request. What is **not** guaranteed: a revocation
+> committed in the interval between that instant and the Vapi request reaching
+> the carrier (one n8n step, typically milliseconds) can still let the call
+> start ringing; it is then caught at `mark-calling` and the call is ended, and
+> the reminder never becomes a valid `calling` row. Closing that interval
+> entirely would require Vapi itself to re-check consent at dial time, which it
+> cannot do.
 
 `current_voice_consent()` (pure — §9) reduces the append-only ledger to one
 state: the row with the greatest `recorded_at`; `granted` iff that row's state is

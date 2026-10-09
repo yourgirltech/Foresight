@@ -72,8 +72,7 @@ export function AcceptInvitePage() {
       subtitle={preview ? undefined : "Checking your invitation…"}
       footer={
         <button onClick={() => void signOut()} className="text-text-muted hover:text-text-secondary">
-          Sign out
-        </button>
+          sign out       </button>
       }
     >
       {loadingPreview ? (
