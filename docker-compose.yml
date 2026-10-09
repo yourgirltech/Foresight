@@ -1,0 +1,48 @@
+# Foresight backend as a persistent local service.
+#
+#   docker compose up -d --build      # build + start (restarts automatically)
+#   docker compose logs -f backend
+#   docker compose down               # stop + remove this service only
+#
+# Supabase is NOT defined here. The existing local stack (`npx supabase start`)
+# stays the single source of truth; this service joins its Docker network.
+#
+# Explicit project name: the Supabase CLI labels its containers with compose
+# project "Foresight", so this file must never share that name — otherwise
+# `docker compose down --remove-orphans` could treat Supabase as orphans.
+name: foresight-backend
+
+services:
+  backend:
+    build: ./backend
+    image: foresight-backend:local
+    container_name: foresight_backend
+    restart: unless-stopped
+    # All secrets / settings come from the gitignored backend/.env ...
+    env_file:
+      - ./backend/.env
+    # ... except the two addresses that differ inside Docker:
+    environment:
+      # server-to-server: Supabase's API gateway on supabase_network_Foresight
+      # (container supabase_kong_Foresight, network alias "kong", port 8000)
+      SUPABASE_URL: http://kong:8000
+      # browser-facing (signed Storage URLs): the host-published gateway port
+      SUPABASE_PUBLIC_URL: http://127.0.0.1:54321
+    ports:
+      # host port 8000: the browser (localhost:8000) and n8n
+      # (host.docker.internal:8000) both reach the backend here
+      - "127.0.0.1:8000:8000"
+    networks:
+      - supabase
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+networks:
+  supabase:
+    # created and owned by the Supabase CLI — joined, never created here
+    name: supabase_network_Foresight
+    external: true

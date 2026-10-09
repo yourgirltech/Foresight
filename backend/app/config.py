@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     )
 
     supabase_url: str = "http://127.0.0.1:54321"
+    # The Supabase URL a BROWSER uses. Only differs from supabase_url when the
+    # backend runs in Docker and reaches Supabase over the internal network
+    # (e.g. http://kong:8000): signed Storage URLs handed to the frontend must
+    # still use the host-published address. Empty -> same as supabase_url.
+    supabase_public_url: str = ""
     supabase_anon_key: str = ""
     supabase_jwt_secret: str = "super-secret-jwt-token-with-at-least-32-characters-long"
     # Used ONLY by the background agent system (app/agents/*), never to answer a
@@ -60,6 +65,7 @@ class Settings(BaseSettings):
     voice_dispatch_lease_minutes: int = 15 # a 'dispatching' row past this with no mark-calling -> lost-dispatch sweep
     voice_due_batch_limit: int = 50        # max reminders returned by one /due poll
     voice_due_stale_hours: int = 48        # a reminder this far past scheduled_call_at -> error + escalation, not a late call
+    voice_outcome_timeout_minutes: int = 120  # a 'calling' row with no end-of-call-report past this -> error + escalation
 
     frontend_origin: str = "http://localhost:5173"
 

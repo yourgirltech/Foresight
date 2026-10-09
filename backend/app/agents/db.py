@@ -587,6 +587,54 @@ async def update_voice_reminder(org_id: str, vr_id: str, fields: dict) -> dict |
     return rows[0] if rows else None
 
 
+async def list_stale_calling(*, placed_before_iso: str, limit: int = 100) -> list[dict]:
+    """'calling' rows whose end-of-call-report never arrived (lost webhook,
+    backend down when Vapi called back). Cross-clinic, like the dispatch sweep."""
+    return await _get(
+        "/voice_reminders",
+        {
+            "status": "eq.calling",
+            "placed_at": f"lt.{placed_before_iso}",
+            "select": "*",
+            "order": "placed_at.asc",
+            "limit": limit,
+        },
+    )
+
+
+async def transition_voice_reminder(
+    org_id: str,
+    vr_id: str,
+    *,
+    from_statuses: tuple[str, ...],
+    fields: dict,
+    extra_filters: dict[str, str] | None = None,
+) -> dict | None:
+    """Compare-and-set status transition. The PATCH only matches while the row
+    is still in one of `from_statuses`, so two concurrent writers (a /due sweep
+    and a late mark-calling, a replayed outcome, two overlapping /due polls)
+    cannot both win — the loser gets None and must not act on the row. A
+    terminal reminder can therefore never be reverted to an active state."""
+    params = {
+        "organization_id": f"eq.{org_id}",
+        "id": f"eq.{vr_id}",
+        "status": f"in.({','.join(from_statuses)})",
+        **(extra_filters or {}),
+    }
+    rows = await _write("PATCH", "/voice_reminders", params, fields)
+    return rows[0] if rows else None
+
+
+async def authorize_voice_dial(vr_id: str, *, lease_cutoff_iso: str) -> dict:
+    """The atomic, single-use pre-dial consent gate — public.voice_authorize_dial()
+    (migration 20261004000001). Returns {"authorized": bool, "reason": str, ...}."""
+    rows = await _write(
+        "POST", "/rpc/voice_authorize_dial", {},
+        {"p_reminder_id": vr_id, "p_lease_cutoff": lease_cutoff_iso},
+    )
+    return rows[0] if rows else {"authorized": False, "reason": "no_response"}
+
+
 async def insert_voice_reminder(org_id: str, fields: dict) -> dict:
     rows = await _write("POST", "/voice_reminders", {}, {**fields, "organization_id": org_id})
     return rows[0]
