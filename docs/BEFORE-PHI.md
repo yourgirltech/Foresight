@@ -1,10 +1,15 @@
 # Foresight — compliance & legal checklist before real PHI
 
-**Purpose.** Foresight runs on **synthetic data only** today. This is the single
-consolidated list of everything that must be resolved — by legal, compliance,
-the customer, or engineering **gated on one of their decisions** — before a real
-patient record, insurance card, claim, or estimate enters the system, in a
-pilot, a customer demo with real data, or production.
+**Scope.** This public repository is the build record and runs on **synthetic
+data only**. The client's production deployment is a newer, private version that
+handles real patient data on the client's own infrastructure; it isn't published
+here, and the statuses below describe this public build, not that deployment.
+
+**Purpose.** This is the single consolidated list of everything that must be
+resolved — by legal, compliance, the customer, or engineering **gated on one of
+their decisions** — before a real patient record, insurance card, claim, or
+estimate enters a deployment of this codebase, in a pilot, a customer demo with
+real data, or production.
 
 This document is written to be handed to outside counsel or a compliance
 consultant. Sections 1–4 are the checklist. Section 5 explains what the product
