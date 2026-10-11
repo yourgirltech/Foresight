@@ -1,5 +1,7 @@
 # Foresight
 
+[![CI](https://github.com/yourgirltech/Foresight/actions/workflows/ci.yml/badge.svg)](https://github.com/yourgirltech/Foresight/actions/workflows/ci.yml)
+
 AI-powered **patient access & revenue cycle** platform for healthcare providers.
 Multi-clinic SaaS from day one.
 
